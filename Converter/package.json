@@ -5,11 +5,11 @@
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "puppeteer": "^21.5.0"
+    "puppeteer": "^22.0.0"
   }
 }

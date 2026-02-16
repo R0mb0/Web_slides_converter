@@ -22,14 +22,21 @@ app.post('/convert', async (req, res) => {
     try {
         console.log('Launching browser for:', url);
 
-        // Configurazione standard per Render.com
-        // L'ambiente di Render ha già le librerie, basta disabilitare la sandbox
+        // Configurazione OTTIMIZZATA per Render.com (Free Tier)
+        // Aggiungiamo flag per ridurre il carico sulla CPU e aumentare i timeout di connessione
         browser = await puppeteer.launch({
             headless: 'new',
+            // Aumentiamo il timeout del protocollo a 60s (default è spesso basso per container lenti)
+            protocolTimeout: 60000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage' // Utile per evitare crash di memoria
+                '--disable-dev-shm-usage', // Fondamentale per la memoria
+                '--disable-gpu',           // Disabilita GPU (risparmia risorse)
+                '--disable-extensions',
+                '--no-first-run',
+                '--no-zygote',
+                '--disable-accelerated-2d-canvas'
             ]
         });
 
@@ -44,8 +51,8 @@ app.post('/convert', async (req, res) => {
         // Imposta viewport Full HD
         await page.setViewport({ width: 1920, height: 1080 });
         
-        // Timeout di 30 secondi per il caricamento
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        // Timeout portato a 60 secondi (60000ms) per dare tempo alle slide pesanti, ma non 5 minuti
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
         // Iniezione CSS per pulire la pagina
         await page.addStyleTag({
