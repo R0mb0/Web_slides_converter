@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Rombaldoni"
+  given-names: "Francesco"
+title: "Web_slides_converter"
+version: 1.0.0
+date-released: 2026-02-16
+url: "https://github.com/R0mb0/Web_slides_converter"
