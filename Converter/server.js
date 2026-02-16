@@ -11,7 +11,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Configurazioni critiche per Vercel
+// Impostazioni grafiche per @sparticuz/chromium v123+
 chromium.setHeadlessMode = true;
 chromium.setGraphicsMode = false;
 
@@ -24,10 +24,10 @@ app.post('/convert', async (req, res) => {
     try {
         console.log('Launching browser for:', url);
 
-        // CONFIGURAZIONE SEMPLIFICATA
-        // Usiamo solo gli argomenti nativi della libreria che sono ottimizzati per Vercel
+        // Lancio browser con configurazione standard per v123.0.1
+        // Questa configurazione è la più stabile per Node 20
         browser = await puppeteer.launch({
-            args: chromium.args, 
+            args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
             headless: chromium.headless,
@@ -36,19 +36,14 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        // Aggiunge ?print-pdf se manca
         let targetUrl = url;
         if (!url.includes('print-pdf')) {
              targetUrl += (url.includes('?') ? '&' : '?') + 'print-pdf';
         }
 
-        // Viewport Full HD
         await page.setViewport({ width: 1920, height: 1080 });
-
-        // Timeout 30s
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Iniezione CSS
         await page.addStyleTag({
             content: `
                 .reveal .controls, .reveal .progress, .reveal .playback, .reveal .state-background,
@@ -58,10 +53,7 @@ app.post('/convert', async (req, res) => {
                 .ytp-chrome-top, .ytp-chrome-bottom
                 { display: none !important; }
                 body { background-color: white !important; -webkit-print-color-adjust: exact; }
-                .reveal .slides section { 
-                    display: block !important; position: relative !important; 
-                    top: auto !important; left: auto !important; transform: none !important;
-                }
+                .reveal .slides section { display: block !important; position: relative !important; top: auto !important; left: auto !important; transform: none !important; }
             `
         });
 
