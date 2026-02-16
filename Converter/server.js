@@ -1,17 +1,35 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-// Su Render usiamo il pacchetto standard "puppeteer", che scarica il suo Chrome compatibile.
-// Non servono più @sparticuz/chromium o puppeteer-core.
 const puppeteer = require('puppeteer');
+// Aggiungiamo 'child_process' per poter eseguire comandi di installazione se necessario
+const { execSync } = require('child_process');
 
 const app = express();
-// Render ci assegna una porta tramite la variabile d'ambiente PORT
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- AUTO-FIX PER RENDER ---
+// Poiché abbiamo usato --ignore-scripts locale, il browser potrebbe mancare.
+// Questa funzione forza il download di Chrome all'avvio del server se necessario.
+function ensureBrowserInstalled() {
+    try {
+        console.log("Verifying Chrome installation for Puppeteer...");
+        // Esegue il comando di installazione ufficiale di Puppeteer
+        // Questo scaricherà la versione corretta di Chrome nella cache
+        execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
+        console.log("Chrome verification/installation complete.");
+    } catch (error) {
+        console.error("Warning: Failed to auto-install Chrome via script.", error);
+    }
+}
+
+// Eseguiamo il controllo prima di avviare il server
+ensureBrowserInstalled();
+// ---------------------------
 
 app.post('/convert', async (req, res) => {
     const { url } = req.body;
@@ -23,16 +41,14 @@ app.post('/convert', async (req, res) => {
         console.log('Launching browser for:', url);
 
         // Configurazione OTTIMIZZATA per Render.com (Free Tier)
-        // Aggiungiamo flag per ridurre il carico sulla CPU e aumentare i timeout di connessione
         browser = await puppeteer.launch({
             headless: 'new',
-            // Aumentiamo il timeout del protocollo a 60s (default è spesso basso per container lenti)
             protocolTimeout: 60000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage', // Fondamentale per la memoria
-                '--disable-gpu',           // Disabilita GPU (risparmia risorse)
+                '--disable-gpu',           // Disabilita GPU
                 '--disable-extensions',
                 '--no-first-run',
                 '--no-zygote',
@@ -51,7 +67,7 @@ app.post('/convert', async (req, res) => {
         // Imposta viewport Full HD
         await page.setViewport({ width: 1920, height: 1080 });
         
-        // Timeout portato a 60 secondi (60000ms) per dare tempo alle slide pesanti, ma non 5 minuti
+        // Timeout 60s
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
         // Iniezione CSS per pulire la pagina
