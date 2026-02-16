@@ -12,6 +12,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configurazioni critiche per Vercel
+// Su versioni recenti di @sparticuz/chromium, queste impostazioni aiutano a caricare i font corretti
 chromium.setHeadlessMode = true;
 chromium.setGraphicsMode = false;
 
@@ -24,8 +25,8 @@ app.post('/convert', async (req, res) => {
     try {
         console.log('Launching browser for:', url);
 
-        // Configurazione specifica per Node 20 su Vercel
-        // Usiamo argomenti extra per disabilitare funzionalità che richiedono GPU o librerie mancanti
+        // Configurazione specifica per Node 20 su Vercel (Amazon Linux 2023)
+        // L'errore libnss3 si risolve usando @sparticuz/chromium v126+ e questi argomenti
         browser = await puppeteer.launch({
             args: [
                 ...chromium.args,
@@ -33,7 +34,9 @@ app.post('/convert', async (req, res) => {
                 "--disable-dev-shm-usage",
                 "--disable-setuid-sandbox",
                 "--no-sandbox",
-                "--no-zygote"
+                "--no-zygote",
+                "--single-process", // Importante per evitare errori di librerie condivise
+                "--disable-accelerated-2d-canvas"
             ],
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
@@ -49,10 +52,11 @@ app.post('/convert', async (req, res) => {
              targetUrl += (url.includes('?') ? '&' : '?') + 'print-pdf';
         }
 
+        // Viewport Full HD
         await page.setViewport({ width: 1920, height: 1080 });
 
-        // Timeout 25s
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 25000 });
+        // Timeout 30s per dare più tempo al rendering
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
         // Iniezione CSS
         await page.addStyleTag({
