@@ -1,19 +1,17 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const chromium = require('@sparticuz/chromium');
-const puppeteer = require('puppeteer-core');
+// Su Render usiamo il pacchetto standard "puppeteer", che scarica il suo Chrome compatibile.
+// Non servono più @sparticuz/chromium o puppeteer-core.
+const puppeteer = require('puppeteer');
 
 const app = express();
+// Render ci assegna una porta tramite la variabile d'ambiente PORT
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Impostazioni grafiche per @sparticuz/chromium v123+
-chromium.setHeadlessMode = true;
-chromium.setGraphicsMode = false;
 
 app.post('/convert', async (req, res) => {
     const { url } = req.body;
@@ -24,26 +22,32 @@ app.post('/convert', async (req, res) => {
     try {
         console.log('Launching browser for:', url);
 
-        // Lancio browser con configurazione standard per v123.0.1
-        // Questa configurazione è la più stabile per Node 20
+        // Configurazione standard per Render.com
+        // L'ambiente di Render ha già le librerie, basta disabilitare la sandbox
         browser = await puppeteer.launch({
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-            ignoreHTTPSErrors: true,
+            headless: 'new',
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage' // Utile per evitare crash di memoria
+            ]
         });
 
         const page = await browser.newPage();
 
         let targetUrl = url;
+        // Aggiunge il parametro per la stampa di Reveal.js se manca
         if (!url.includes('print-pdf')) {
              targetUrl += (url.includes('?') ? '&' : '?') + 'print-pdf';
         }
 
+        // Imposta viewport Full HD
         await page.setViewport({ width: 1920, height: 1080 });
+        
+        // Timeout di 30 secondi per il caricamento
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
+        // Iniezione CSS per pulire la pagina
         await page.addStyleTag({
             content: `
                 .reveal .controls, .reveal .progress, .reveal .playback, .reveal .state-background,
