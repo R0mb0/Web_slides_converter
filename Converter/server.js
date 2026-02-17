@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+// Richiede 'npm install pdf-lib'
+const { PDFDocument } = require('pdf-lib');
+
 // 1. IMPOSTAZIONE CRITICA: Definiamo la cartella della cache
 process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, '.cache');
 
@@ -36,7 +39,7 @@ app.post('/convert', async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: 'new',
-            protocolTimeout: 180000, // Timeout esteso a 3 minuti
+            protocolTimeout: 180000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -51,24 +54,24 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        // 1. Navigazione Base
         let targetUrl = url.split('#')[0];
         console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // Risoluzione Desktop Standard
-        await page.setViewport({ width: 1280, height: 800 });
+        // Risoluzione Desktop Standard (Cruciale per i PDF vettoriali)
+        const VIEWPORT_WIDTH = 1280;
+        const VIEWPORT_HEIGHT = 800;
+        await page.setViewport({ width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT });
 
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 120000 });
 
-        // FIX FOCUS: Clicchiamo al centro della pagina
+        // FIX FOCUS
         try {
-            await page.mouse.click(640, 400);
+            await page.mouse.click(VIEWPORT_WIDTH / 2, VIEWPORT_HEIGHT / 2);
             await page.focus('body');
         } catch (e) { }
 
-        console.log("[BOT] Detecting Presentation Framework...");
+        console.log("[BOT] Detecting Framework & Preparing Vector Capture...");
 
-        // 2. RILEVAMENTO FRAMEWORK JS
         const frameworkType = await page.evaluate(() => {
             if (window.Reveal) return 'reveal';
             if (window.remark) return 'remark';
@@ -77,71 +80,67 @@ app.post('/convert', async (req, res) => {
             return 'generic';
         });
 
-        console.log(`[BOT] Framework detected: ${frameworkType.toUpperCase()}`);
-
-        // INIEZIONE CSS: Nascondiamo l'interfaccia rendendola trasparente
-        // Manteniamo gli elementi cliccabili, ma invisibili allo screenshot
+        // INIEZIONE CSS: Nascondiamo l'interfaccia 
         await page.addStyleTag({
             content: `
                 .controls, .progress, .slide-number, .header, .footer, 
                 .ytp-chrome-top, .ytp-chrome-bottom,
-                /* Nascondi pulsanti specifici visti negli screenshot */
                 .navigate-right, .navigate-left, button[aria-label="Next slide"]
-                { opacity: 0 !important; } 
+                { opacity: 0 !important; }
+                
+                /* Forziamo la stampa come "Screen" per non rompere il layout */
+                @media print {
+                    body { -webkit-print-color-adjust: exact; }
+                    .reveal .slides section { visibility: inherit !important; display: inherit !important; }
+                }
             `
         });
 
-        const screenshots = [];
+        // Array per raccogliere i buffer PDF delle singole pagine
+        const pdfChunks = [];
+
         let hasNext = true;
         let slideCount = 0;
         const MAX_SLIDES = 100;
-
-        // Variabile per confrontare lo screenshot precedente
         let previousScreenshotBase64 = "";
-        // Tentativo di leggere il contatore slide (es. "1 / 12")
-        let currentSlideIndex = 0;
 
         while (hasNext && slideCount < MAX_SLIDES) {
-            // Attesa stabilizzazione (fondamentale per le transizioni)
             await new Promise(r => setTimeout(r, 1500));
 
-            // Scatta Screenshot
-            const imgBuffer = await page.screenshot({ encoding: 'base64', fullPage: false });
+            // 1. SCATTO DI CONTROLLO (Immagine piccola per verificare se ci siamo mossi)
+            // Usiamo ancora lo screenshot SOLO per la logica di navigazione
+            const checkBuffer = await page.screenshot({ encoding: 'base64', fullPage: false, type: 'jpeg', quality: 50 });
 
-            // --- CHECK VISIVO ANTI-LOOP ---
-            // Se l'immagine è identica alla precedente, siamo fermi.
-            if (slideCount > 0 && imgBuffer === previousScreenshotBase64) {
+            if (slideCount > 0 && checkBuffer === previousScreenshotBase64) {
                 console.log("Visual check: Slide did not change. Stopping.");
                 break;
             }
+            previousScreenshotBase64 = checkBuffer;
 
-            previousScreenshotBase64 = imgBuffer;
-            screenshots.push(imgBuffer);
+            // 2. CATTURA VETTORIALE (PDF Reale della singola slide)
+            // Invece di salvare l'immagine, stampiamo la vista corrente
+            const slidePdfBuffer = await page.pdf({
+                width: `${VIEWPORT_WIDTH}px`,
+                height: `${VIEWPORT_HEIGHT}px`,
+                printBackground: true,
+                pageRanges: '1' // Stampa solo la vista corrente
+            });
+
+            pdfChunks.push(slidePdfBuffer);
             slideCount++;
-            console.log(`Captured slide ${slideCount} (Method: ${frameworkType})`);
+            console.log(`Captured Vector PDF for slide ${slideCount}`);
 
-            // --- STRATEGIA DI NAVIGAZIONE "TRY-HARDER" ---
-            // Proviamo vari metodi in sequenza finché uno non sembra funzionare
-
+            // 3. NAVIGAZIONE (Stessa logica robusta di prima)
             const navResult = await page.evaluate((type) => {
-                // METODO 1: API NATIVA (Se rilevata)
                 if (type === 'reveal' && window.Reveal) {
                     if (window.Reveal.isLastSlide && window.Reveal.isLastSlide()) return 'finished';
                     window.Reveal.next();
                     return 'api';
                 }
-                if (type === 'remark' && window.remark && window.remark.slideshow) {
-                    if (window.remark.slideshow.getCurrentSlideIndex() === window.remark.slideshow.getSlideCount() - 1) return 'finished';
-                    window.remark.slideshow.gotoNextSlide();
-                    return 'api';
-                }
-
-                // METODO 2: CERCA PULSANTE "NEXT" (Analisi Testuale)
-                // Cerca bottoni con testo "Next", ">", "Avanti", o classi sospette
                 const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"], .next, .navigate-right, .arrow-right'));
                 const nextBtn = candidates.find(el => {
                     const text = (el.innerText || "").toLowerCase();
-                    const visible = el.offsetParent !== null; // Deve essere visibile
+                    const visible = el.offsetParent !== null;
                     return visible && (text.includes('next') || text.includes('avanti') || text.includes('→') || text.includes('>'));
                 });
 
@@ -149,72 +148,42 @@ app.post('/convert', async (req, res) => {
                     nextBtn.click();
                     return 'click-text-match';
                 }
-
-                // Se non troviamo nulla di specifico, torniamo 'fallback' per usare la tastiera
                 return 'fallback';
             }, frameworkType);
 
-            if (navResult === 'finished') {
-                console.log("API reports end of presentation.");
-                break;
-            }
+            if (navResult === 'finished') break;
 
-            // METODO 3: TASTIERA (Fallback)
             if (navResult === 'fallback') {
                 try {
-                    // Premiamo ArrowRight
                     await page.keyboard.press('ArrowRight');
-
-                    // METODO 4: Iniezione Evento JS (Brute Force)
-                    // A volte Puppeteer non ha il focus, ma questo evento JS viene ascoltato comunque
-                    await page.evaluate(() => {
-                        const event = new KeyboardEvent('keydown', {
-                            key: 'ArrowRight',
-                            code: 'ArrowRight',
-                            keyCode: 39,
-                            which: 39,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        document.dispatchEvent(event);
-                    });
-                } catch (e) {
-                    console.error("Keyboard nav failed:", e.message);
-                }
+                } catch (e) { }
             }
 
-            // Attesa post-navigazione per permettere il caricamento della prossima slide
             await new Promise(r => setTimeout(r, 1000));
         }
 
-        console.log(`[BUILD] Stitched ${screenshots.length} slides. Generating PDF...`);
+        console.log(`[BUILD] Merging ${pdfChunks.length} vector pages...`);
 
-        const htmlContent = `
-            <html>
-                <body style="margin:0; padding:0; background: white;">
-                    ${screenshots.map(img => `
-                        <div style="width: 100%; height: 100vh; display: flex; justify-content: center; align-items: center; page-break-after: always; overflow: hidden;">
-                            <img src="data:image/png;base64,${img}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
-                        </div>
-                    `).join('')}
-                </body>
-            </html>
-        `;
+        // 4. UNIONE DEI PDF (Merge)
+        // Usiamo pdf-lib per unire tutte le pagine singole in un unico file
+        const mergedPdf = await PDFDocument.create();
 
-        await page.setContent(htmlContent);
+        for (const chunk of pdfChunks) {
+            const doc = await PDFDocument.load(chunk);
+            const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
+            copiedPages.forEach((page) => mergedPdf.addPage(page));
+        }
 
-        const pdfBuffer = await page.pdf({
-            printBackground: true,
-            format: 'A4',
-            margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
-        });
+        const finalPdfBytes = await mergedPdf.save();
+
+        console.log(`[SUCCESS] Generated Selectable PDF: ${finalPdfBytes.length} bytes`);
 
         res.set({
             'Content-Type': 'application/pdf',
-            'Content-Length': pdfBuffer.length,
-            'Content-Disposition': 'inline; filename="slides.pdf"'
+            'Content-Length': finalPdfBytes.length,
+            'Content-Disposition': 'inline; filename="slides_vector.pdf"'
         });
-        res.send(pdfBuffer);
+        res.send(Buffer.from(finalPdfBytes));
 
     } catch (error) {
         console.error('[ERROR]', error);
