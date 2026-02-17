@@ -51,69 +51,87 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        // 1. NAVIGAZIONE (Modalità Normale)
-        // NON usiamo ?print-pdf. Vogliamo vedere il sito esattamente come un utente.
         let targetUrl = url.split('#')[0];
-
         console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // Impostiamo una risoluzione standard da Laptop (1280x720) per avere slide ben proporzionate
+        // Risoluzione standard
         await page.setViewport({ width: 1280, height: 720 });
 
-        // Navigazione
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 120000 });
 
-        // 2. NASCONDI INTERFACCIA (Pulsanti, Frecce)
-        // Iniettiamo CSS per pulire la visuale PRIMA di iniziare a scattare foto
+        // FIX FOCUS: Clicchiamo sul corpo della pagina per assicurarci che riceva i comandi
+        try {
+            await page.click('body');
+        } catch (e) { }
+
+        console.log("[BOT] Starting Smart Slide Capture...");
+
+        // INIEZIONE CSS: Nascondiamo l'interfaccia MA NON i pulsanti di navigazione ancora
+        // (potrebbero servirci per cliccarli via JS, li nasconderemo nello screenshot)
         await page.addStyleTag({
             content: `
-                button, .controls, .navigation, .progress, .slide-number, 
-                .header, .footer, nav, .navigate-right, .navigate-left,
+                .controls, .progress, .slide-number, .header, .footer, 
                 .ytp-chrome-top, .ytp-chrome-bottom
-                { display: none !important; }
+                { opacity: 0 !important; } 
+                /* Usiamo opacity 0 invece di display none per non rompere il layout o i click */
             `
         });
-
-        console.log("[BOT] Starting Slide Capture Sequence...");
 
         const screenshots = [];
         let hasNext = true;
         let slideCount = 0;
-        const MAX_SLIDES = 100; // Limite di sicurezza per evitare loop infiniti
+        const MAX_SLIDES = 150;
 
-        // Memorizziamo l'hash (es. #/1) o l'URL per capire se la slide è cambiata
         let currentHash = await page.evaluate(() => window.location.hash);
 
-        // 3. LOOP DI CATTURA (Naviga -> Scatta -> Ripeti)
         while (hasNext && slideCount < MAX_SLIDES) {
-            // Aspettiamo che le animazioni finiscano
-            await new Promise(r => setTimeout(r, 1000));
+            // Attesa stabilità visiva (aumentata a 1.5s per sicurezza)
+            await new Promise(r => setTimeout(r, 1500));
 
-            // Scatta Screenshot (in memoria, formato base64)
+            // Scatta Screenshot
             const imgBuffer = await page.screenshot({ encoding: 'base64', fullPage: false });
             screenshots.push(imgBuffer);
             slideCount++;
-            console.log(`Captured slide ${slideCount}`);
+            console.log(`Captured slide ${slideCount} (Hash: ${currentHash})`);
 
-            // Tenta di andare alla prossima slide
-            // Usiamo 'Space' che è lo standard universale per "Next Slide" (gestisce anche slide verticali)
-            // Se Space non va, prova ArrowRight come fallback
-            try {
-                await page.focus('body'); // Assicura che la pagina abbia il focus
-                await page.keyboard.press('Space');
-            } catch (e) {
-                await page.keyboard.press('ArrowRight');
+            // --- NAVIGAZIONE INTELLIGENTE ---
+            // Tentiamo 3 metodi per cambiare slide
+            const navigationSuccess = await page.evaluate(() => {
+                // Metodo 1: API Reveal.js (Il più affidabile)
+                if (window.Reveal && typeof window.Reveal.next === 'function') {
+                    window.Reveal.next();
+                    return 'reveal-api';
+                }
+
+                // Metodo 2: Cerca e clicca pulsante "Avanti" standard
+                const nextBtns = document.querySelectorAll('.navigate-right, .next, button[aria-label="Next slide"]');
+                for (let btn of nextBtns) {
+                    if (btn && btn.offsetParent !== null) { // Controlla se visibile/cliccabile
+                        btn.click();
+                        return 'click-btn';
+                    }
+                }
+
+                return 'keyboard-fallback';
+            });
+
+            // Metodo 3: Tastiera (Fallback se i primi 2 falliscono o non trovano nulla)
+            if (navigationSuccess === 'keyboard-fallback') {
+                try {
+                    await page.keyboard.press('ArrowRight');
+                } catch (e) {
+                    console.log("Keyboard nav failed");
+                }
             }
 
-            // Attesa transizione
+            // Attesa post-navigazione per permettere l'aggiornamento dell'URL
             await new Promise(r => setTimeout(r, 1000));
 
-            // Controlliamo se siamo andati avanti
             const newHash = await page.evaluate(() => window.location.hash);
 
-            // Se l'URL non cambia, siamo alla fine
-            if (newHash === currentHash && slideCount > 1) {
-                console.log("Navigation stopped. End of presentation reached.");
+            // CONTROLLO DI FINE: Se l'hash non cambia, siamo arrivati in fondo
+            if (newHash === currentHash) {
+                console.log("Hash did not change. Assuming end of presentation.");
                 hasNext = false;
             } else {
                 currentHash = newHash;
@@ -122,9 +140,6 @@ app.post('/convert', async (req, res) => {
 
         console.log(`[BUILD] Stitched ${screenshots.length} slides. Generating PDF...`);
 
-        // 4. GENERAZIONE PDF "INCOLLATO"
-        // Creiamo una nuova pagina HTML vuota e ci "incolliamo" dentro tutte le foto scattate
-        // una sotto l'altra.
         const htmlContent = `
             <html>
                 <body style="margin:0; padding:0; background: white;">
@@ -137,17 +152,13 @@ app.post('/convert', async (req, res) => {
             </html>
         `;
 
-        // Carichiamo questo nuovo contenuto nella pagina
         await page.setContent(htmlContent);
 
-        // Stampiamo il tutto
         const pdfBuffer = await page.pdf({
             printBackground: true,
-            format: 'A4', // Ora usiamo A4 perché stiamo stampando immagini standard
+            format: 'A4',
             margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
         });
-
-        console.log(`[SUCCESS] PDF Size: ${pdfBuffer.length} bytes`);
 
         res.set({
             'Content-Type': 'application/pdf',
