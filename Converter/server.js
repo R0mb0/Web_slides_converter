@@ -36,7 +36,7 @@ app.post('/convert', async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: 'new',
-            protocolTimeout: 120000, // 2 minuti di tempo massimo per connessioni lente
+            protocolTimeout: 120000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -51,8 +51,8 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        // 1. Preparazione URL
-        // Rimuoviamo qualsiasi ancora e aggiungiamo print-pdf
+        // 1. URL Pulito (Proviamo SENZA ?print-pdf se il framework è custom,
+        // ma lo teniamo come fallback perché spesso carica gli asset giusti)
         let targetUrl = url.split('#')[0];
         if (!targetUrl.includes('print-pdf')) {
             targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'print-pdf';
@@ -60,55 +60,89 @@ app.post('/convert', async (req, res) => {
 
         console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // 2. Viewport Standard per Presentazioni
-        // Usiamo una risoluzione tipica da laptop per evitare layout mobile
-        await page.setViewport({ width: 1280, height: 800 });
+        // Viewport ampia
+        await page.setViewport({ width: 1280, height: 1024 });
 
-        // 3. Navigazione con attesa di rete
-        // Aumentiamo il timeout a 2 minuti per sicurezza
-        await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 120000 });
+        // Navigazione
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 120000 });
 
-        // 4. ATTESA INTELLIGENTE (La chiave per risolvere il problema)
-        // Invece di aspettare secondi a caso, aspettiamo che Reveal.js abbia creato le pagine PDF.
-        // Reveal.js aggiunge la classe 'pdf-page' o imposta un'altezza elevata al body.
-        console.log("[WAIT] Waiting for Reveal.js to layout PDF pages...");
+        console.log("[HACK] Applying Brute-Force layout fix...");
 
-        try {
-            await page.waitForFunction(() => {
-                // Controlla se l'altezza del documento è significativamente più grande della finestra
-                // Questo indica che le slide sono state "srotolate" verticalmente
-                return document.body.scrollHeight > window.innerHeight * 2;
-            }, { timeout: 15000 }); // Aspetta max 15 secondi che il layout cambi
-        } catch (e) {
-            console.log("Warning: Layout check timed out, proceeding anyway...");
-        }
+        // 2. SCRIPT DI SBLOCCO MANUALE (DOM Unpacker)
+        // Questo script viene eseguito DENTRO la pagina per manipolare il sito
+        await page.evaluate(() => {
+            // A. Nascondere l'Interfaccia Utente (Pulsanti, Footer, Contatori)
+            const selectorsToHide = [
+                'button',                 // Tutti i pulsanti
+                '.controls',              // Reveal.js controls
+                '.navigation',            // Barre navigazione generiche
+                '.progress',              // Barre progresso
+                '.slide-number',          // Numeri slide
+                '.header', '.footer',     // Intestazioni/Piè di pagina
+                'nav',                    // Elementi di navigazione HTML5
+                '.navigate-right', '.navigate-left', // Frecce specifiche
+                'div[class*="controls"]'  // Qualsiasi div con "controls" nel nome
+            ];
 
-        // 5. INIEZIONE CSS DI SICUREZZA
-        // Forza lo sfondo bianco e nasconde i controlli, ma NON tocca il layout (ci pensa Reveal)
-        await page.addStyleTag({
-            content: `
-                .reveal .controls, .reveal .progress, .reveal .playback, .reveal .state-background,
-                .navigate-left, .navigate-right, .navigate-up, .navigate-down,
-                .bespoke-marp-osc, nav.navigation, .navigation-bar,
-                .ytp-chrome-top, .ytp-chrome-bottom, .header, .footer
-                { display: none !important; }
+            selectorsToHide.forEach(sel => {
+                document.querySelectorAll(sel).forEach(el => el.style.display = 'none');
+            });
 
-                body, .reveal { background-color: white !important; }
-                
-                /* Forza la visibilità per sicurezza */
-                .reveal .slides section { visibility: visible !important; opacity: 1 !important; display: block !important; }
-            `
+            // B. Sbloccare le Slide (Reveal.js e simili usano <section>)
+            const slides = document.querySelectorAll('.reveal .slides section, section');
+
+            if (slides.length > 0) {
+                // Sblocchiamo il contenitore principale
+                const reveal = document.querySelector('.reveal');
+                if (reveal) {
+                    reveal.style.overflow = 'visible';
+                    reveal.style.position = 'static';
+                    reveal.style.height = 'auto';
+                }
+                const slidesContainer = document.querySelector('.reveal .slides');
+                if (slidesContainer) {
+                    slidesContainer.style.width = '100%';
+                    slidesContainer.style.height = 'auto';
+                    slidesContainer.style.overflow = 'visible';
+                    slidesContainer.style.transform = 'none';
+                    slidesContainer.style.position = 'static';
+                    slidesContainer.style.left = 'auto';
+                    slidesContainer.style.top = 'auto';
+                }
+
+                // Sblocchiamo ogni singola slide trovata
+                slides.forEach(slide => {
+                    slide.style.display = 'block';     // Mostra slide nascoste
+                    slide.style.visibility = 'visible';
+                    slide.style.opacity = '1';
+                    slide.style.position = 'relative'; // Impila verticalmente
+                    slide.style.top = 'auto';
+                    slide.style.left = 'auto';
+                    slide.style.transform = 'none';    // Rimuove effetti di transizione
+                    slide.style.height = 'auto';       // Altezza automatica
+                    slide.style.minHeight = '600px';   // Altezza minima per evitare schiacciamenti
+                    slide.style.marginBottom = '20px'; // Spazio tra le slide
+                    slide.style.pageBreakAfter = 'always'; // Pagina nuova nel PDF
+                });
+
+                // Forza lo sfondo bianco
+                document.body.style.backgroundColor = 'white';
+                document.body.style.height = 'auto';
+                document.body.style.overflow = 'visible';
+            }
         });
 
-        // Breve pausa finale per assicurarsi che font e immagini siano renderizzati
-        await new Promise(r => setTimeout(r, 3000));
+        // Pausa per lasciare che il browser ridisegni il layout modificato
+        await new Promise(r => setTimeout(r, 2000));
 
         console.log(`[PDF] Generating PDF...`);
 
         const pdfBuffer = await page.pdf({
             printBackground: true,
-            preferCSSPageSize: true, // Rispetta i page-break del sito
-            margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
+            // Importante: togliamo preferCSSPageSize qui perché abbiamo manomesso il layout manualmente
+            // Usiamo il formato A4 per avere pagine standard
+            format: 'A4',
+            margin: { top: '10px', bottom: '10px', left: '10px', right: '10px' }
         });
 
         console.log(`[SUCCESS] PDF Size: ${pdfBuffer.length} bytes`);
