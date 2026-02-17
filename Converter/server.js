@@ -51,98 +51,100 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        // 1. URL Pulito (Proviamo SENZA ?print-pdf se il framework è custom,
-        // ma lo teniamo come fallback perché spesso carica gli asset giusti)
+        // 1. NAVIGAZIONE (Modalità Normale)
+        // NON usiamo ?print-pdf. Vogliamo vedere il sito esattamente come un utente.
         let targetUrl = url.split('#')[0];
-        if (!targetUrl.includes('print-pdf')) {
-            targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'print-pdf';
-        }
 
         console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // Viewport ampia
-        await page.setViewport({ width: 1280, height: 1024 });
+        // Impostiamo una risoluzione standard da Laptop (1280x720) per avere slide ben proporzionate
+        await page.setViewport({ width: 1280, height: 720 });
 
         // Navigazione
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 120000 });
 
-        console.log("[HACK] Applying Brute-Force layout fix...");
-
-        // 2. SCRIPT DI SBLOCCO MANUALE (DOM Unpacker)
-        // Questo script viene eseguito DENTRO la pagina per manipolare il sito
-        await page.evaluate(() => {
-            // A. Nascondere l'Interfaccia Utente (Pulsanti, Footer, Contatori)
-            const selectorsToHide = [
-                'button',                 // Tutti i pulsanti
-                '.controls',              // Reveal.js controls
-                '.navigation',            // Barre navigazione generiche
-                '.progress',              // Barre progresso
-                '.slide-number',          // Numeri slide
-                '.header', '.footer',     // Intestazioni/Piè di pagina
-                'nav',                    // Elementi di navigazione HTML5
-                '.navigate-right', '.navigate-left', // Frecce specifiche
-                'div[class*="controls"]'  // Qualsiasi div con "controls" nel nome
-            ];
-
-            selectorsToHide.forEach(sel => {
-                document.querySelectorAll(sel).forEach(el => el.style.display = 'none');
-            });
-
-            // B. Sbloccare le Slide (Reveal.js e simili usano <section>)
-            const slides = document.querySelectorAll('.reveal .slides section, section');
-
-            if (slides.length > 0) {
-                // Sblocchiamo il contenitore principale
-                const reveal = document.querySelector('.reveal');
-                if (reveal) {
-                    reveal.style.overflow = 'visible';
-                    reveal.style.position = 'static';
-                    reveal.style.height = 'auto';
-                }
-                const slidesContainer = document.querySelector('.reveal .slides');
-                if (slidesContainer) {
-                    slidesContainer.style.width = '100%';
-                    slidesContainer.style.height = 'auto';
-                    slidesContainer.style.overflow = 'visible';
-                    slidesContainer.style.transform = 'none';
-                    slidesContainer.style.position = 'static';
-                    slidesContainer.style.left = 'auto';
-                    slidesContainer.style.top = 'auto';
-                }
-
-                // Sblocchiamo ogni singola slide trovata
-                slides.forEach(slide => {
-                    slide.style.display = 'block';     // Mostra slide nascoste
-                    slide.style.visibility = 'visible';
-                    slide.style.opacity = '1';
-                    slide.style.position = 'relative'; // Impila verticalmente
-                    slide.style.top = 'auto';
-                    slide.style.left = 'auto';
-                    slide.style.transform = 'none';    // Rimuove effetti di transizione
-                    slide.style.height = 'auto';       // Altezza automatica
-                    slide.style.minHeight = '600px';   // Altezza minima per evitare schiacciamenti
-                    slide.style.marginBottom = '20px'; // Spazio tra le slide
-                    slide.style.pageBreakAfter = 'always'; // Pagina nuova nel PDF
-                });
-
-                // Forza lo sfondo bianco
-                document.body.style.backgroundColor = 'white';
-                document.body.style.height = 'auto';
-                document.body.style.overflow = 'visible';
-            }
+        // 2. NASCONDI INTERFACCIA (Pulsanti, Frecce)
+        // Iniettiamo CSS per pulire la visuale PRIMA di iniziare a scattare foto
+        await page.addStyleTag({
+            content: `
+                button, .controls, .navigation, .progress, .slide-number, 
+                .header, .footer, nav, .navigate-right, .navigate-left,
+                .ytp-chrome-top, .ytp-chrome-bottom
+                { display: none !important; }
+            `
         });
 
-        // Pausa per lasciare che il browser ridisegni il layout modificato
-        await new Promise(r => setTimeout(r, 2000));
+        console.log("[BOT] Starting Slide Capture Sequence...");
 
-        console.log(`[PDF] Generating PDF...`);
+        const screenshots = [];
+        let hasNext = true;
+        let slideCount = 0;
+        const MAX_SLIDES = 100; // Limite di sicurezza per evitare loop infiniti
 
+        // Memorizziamo l'hash (es. #/1) o l'URL per capire se la slide è cambiata
+        let currentHash = await page.evaluate(() => window.location.hash);
+
+        // 3. LOOP DI CATTURA (Naviga -> Scatta -> Ripeti)
+        while (hasNext && slideCount < MAX_SLIDES) {
+            // Aspettiamo che le animazioni finiscano
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Scatta Screenshot (in memoria, formato base64)
+            const imgBuffer = await page.screenshot({ encoding: 'base64', fullPage: false });
+            screenshots.push(imgBuffer);
+            slideCount++;
+            console.log(`Captured slide ${slideCount}`);
+
+            // Tenta di andare alla prossima slide
+            // Usiamo 'Space' che è lo standard universale per "Next Slide" (gestisce anche slide verticali)
+            // Se Space non va, prova ArrowRight come fallback
+            try {
+                await page.focus('body'); // Assicura che la pagina abbia il focus
+                await page.keyboard.press('Space');
+            } catch (e) {
+                await page.keyboard.press('ArrowRight');
+            }
+
+            // Attesa transizione
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Controlliamo se siamo andati avanti
+            const newHash = await page.evaluate(() => window.location.hash);
+
+            // Se l'URL non cambia, siamo alla fine
+            if (newHash === currentHash && slideCount > 1) {
+                console.log("Navigation stopped. End of presentation reached.");
+                hasNext = false;
+            } else {
+                currentHash = newHash;
+            }
+        }
+
+        console.log(`[BUILD] Stitched ${screenshots.length} slides. Generating PDF...`);
+
+        // 4. GENERAZIONE PDF "INCOLLATO"
+        // Creiamo una nuova pagina HTML vuota e ci "incolliamo" dentro tutte le foto scattate
+        // una sotto l'altra.
+        const htmlContent = `
+            <html>
+                <body style="margin:0; padding:0; background: white;">
+                    ${screenshots.map(img => `
+                        <div style="width: 100%; height: 100vh; display: flex; justify-content: center; align-items: center; page-break-after: always; overflow: hidden;">
+                            <img src="data:image/png;base64,${img}" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+                        </div>
+                    `).join('')}
+                </body>
+            </html>
+        `;
+
+        // Carichiamo questo nuovo contenuto nella pagina
+        await page.setContent(htmlContent);
+
+        // Stampiamo il tutto
         const pdfBuffer = await page.pdf({
             printBackground: true,
-            // Importante: togliamo preferCSSPageSize qui perché abbiamo manomesso il layout manualmente
-            // Usiamo il formato A4 per avere pagine standard
-            format: 'A4',
-            margin: { top: '10px', bottom: '10px', left: '10px', right: '10px' }
+            format: 'A4', // Ora usiamo A4 perché stiamo stampando immagini standard
+            margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
         });
 
         console.log(`[SUCCESS] PDF Size: ${pdfBuffer.length} bytes`);
