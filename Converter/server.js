@@ -36,7 +36,7 @@ app.post('/convert', async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: 'new',
-            protocolTimeout: 120000,
+            protocolTimeout: 180000, // Timeout esteso a 3 minuti
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -51,91 +51,140 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
+        // 1. Navigazione Base
         let targetUrl = url.split('#')[0];
         console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // Risoluzione standard
-        await page.setViewport({ width: 1280, height: 720 });
+        // Risoluzione Desktop Standard
+        await page.setViewport({ width: 1280, height: 800 });
 
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 120000 });
 
-        // FIX FOCUS: Clicchiamo sul corpo della pagina per assicurarci che riceva i comandi
+        // FIX FOCUS: Clicchiamo al centro della pagina
         try {
-            await page.click('body');
+            await page.mouse.click(640, 400);
+            await page.focus('body');
         } catch (e) { }
 
-        console.log("[BOT] Starting Smart Slide Capture...");
+        console.log("[BOT] Detecting Presentation Framework...");
 
-        // INIEZIONE CSS: Nascondiamo l'interfaccia MA NON i pulsanti di navigazione ancora
-        // (potrebbero servirci per cliccarli via JS, li nasconderemo nello screenshot)
+        // 2. RILEVAMENTO FRAMEWORK JS
+        const frameworkType = await page.evaluate(() => {
+            if (window.Reveal) return 'reveal';
+            if (window.remark) return 'remark';
+            if (window.impress) return 'impress';
+            if (document.querySelector('.bespoke-parent')) return 'bespoke';
+            return 'generic';
+        });
+
+        console.log(`[BOT] Framework detected: ${frameworkType.toUpperCase()}`);
+
+        // INIEZIONE CSS: Nascondiamo l'interfaccia rendendola trasparente
+        // Manteniamo gli elementi cliccabili, ma invisibili allo screenshot
         await page.addStyleTag({
             content: `
                 .controls, .progress, .slide-number, .header, .footer, 
-                .ytp-chrome-top, .ytp-chrome-bottom
+                .ytp-chrome-top, .ytp-chrome-bottom,
+                /* Nascondi pulsanti specifici visti negli screenshot */
+                .navigate-right, .navigate-left, button[aria-label="Next slide"]
                 { opacity: 0 !important; } 
-                /* Usiamo opacity 0 invece di display none per non rompere il layout o i click */
             `
         });
 
         const screenshots = [];
         let hasNext = true;
         let slideCount = 0;
-        const MAX_SLIDES = 150;
+        const MAX_SLIDES = 100;
 
-        let currentHash = await page.evaluate(() => window.location.hash);
+        // Variabile per confrontare lo screenshot precedente
+        let previousScreenshotBase64 = "";
+        // Tentativo di leggere il contatore slide (es. "1 / 12")
+        let currentSlideIndex = 0;
 
         while (hasNext && slideCount < MAX_SLIDES) {
-            // Attesa stabilità visiva (aumentata a 1.5s per sicurezza)
+            // Attesa stabilizzazione (fondamentale per le transizioni)
             await new Promise(r => setTimeout(r, 1500));
 
             // Scatta Screenshot
             const imgBuffer = await page.screenshot({ encoding: 'base64', fullPage: false });
+
+            // --- CHECK VISIVO ANTI-LOOP ---
+            // Se l'immagine è identica alla precedente, siamo fermi.
+            if (slideCount > 0 && imgBuffer === previousScreenshotBase64) {
+                console.log("Visual check: Slide did not change. Stopping.");
+                break;
+            }
+
+            previousScreenshotBase64 = imgBuffer;
             screenshots.push(imgBuffer);
             slideCount++;
-            console.log(`Captured slide ${slideCount} (Hash: ${currentHash})`);
+            console.log(`Captured slide ${slideCount} (Method: ${frameworkType})`);
 
-            // --- NAVIGAZIONE INTELLIGENTE ---
-            // Tentiamo 3 metodi per cambiare slide
-            const navigationSuccess = await page.evaluate(() => {
-                // Metodo 1: API Reveal.js (Il più affidabile)
-                if (window.Reveal && typeof window.Reveal.next === 'function') {
+            // --- STRATEGIA DI NAVIGAZIONE "TRY-HARDER" ---
+            // Proviamo vari metodi in sequenza finché uno non sembra funzionare
+
+            const navResult = await page.evaluate((type) => {
+                // METODO 1: API NATIVA (Se rilevata)
+                if (type === 'reveal' && window.Reveal) {
+                    if (window.Reveal.isLastSlide && window.Reveal.isLastSlide()) return 'finished';
                     window.Reveal.next();
-                    return 'reveal-api';
+                    return 'api';
+                }
+                if (type === 'remark' && window.remark && window.remark.slideshow) {
+                    if (window.remark.slideshow.getCurrentSlideIndex() === window.remark.slideshow.getSlideCount() - 1) return 'finished';
+                    window.remark.slideshow.gotoNextSlide();
+                    return 'api';
                 }
 
-                // Metodo 2: Cerca e clicca pulsante "Avanti" standard
-                const nextBtns = document.querySelectorAll('.navigate-right, .next, button[aria-label="Next slide"]');
-                for (let btn of nextBtns) {
-                    if (btn && btn.offsetParent !== null) { // Controlla se visibile/cliccabile
-                        btn.click();
-                        return 'click-btn';
-                    }
+                // METODO 2: CERCA PULSANTE "NEXT" (Analisi Testuale)
+                // Cerca bottoni con testo "Next", ">", "Avanti", o classi sospette
+                const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"], .next, .navigate-right, .arrow-right'));
+                const nextBtn = candidates.find(el => {
+                    const text = (el.innerText || "").toLowerCase();
+                    const visible = el.offsetParent !== null; // Deve essere visibile
+                    return visible && (text.includes('next') || text.includes('avanti') || text.includes('→') || text.includes('>'));
+                });
+
+                if (nextBtn) {
+                    nextBtn.click();
+                    return 'click-text-match';
                 }
 
-                return 'keyboard-fallback';
-            });
+                // Se non troviamo nulla di specifico, torniamo 'fallback' per usare la tastiera
+                return 'fallback';
+            }, frameworkType);
 
-            // Metodo 3: Tastiera (Fallback se i primi 2 falliscono o non trovano nulla)
-            if (navigationSuccess === 'keyboard-fallback') {
+            if (navResult === 'finished') {
+                console.log("API reports end of presentation.");
+                break;
+            }
+
+            // METODO 3: TASTIERA (Fallback)
+            if (navResult === 'fallback') {
                 try {
+                    // Premiamo ArrowRight
                     await page.keyboard.press('ArrowRight');
+
+                    // METODO 4: Iniezione Evento JS (Brute Force)
+                    // A volte Puppeteer non ha il focus, ma questo evento JS viene ascoltato comunque
+                    await page.evaluate(() => {
+                        const event = new KeyboardEvent('keydown', {
+                            key: 'ArrowRight',
+                            code: 'ArrowRight',
+                            keyCode: 39,
+                            which: 39,
+                            bubbles: true,
+                            cancelable: true
+                        });
+                        document.dispatchEvent(event);
+                    });
                 } catch (e) {
-                    console.log("Keyboard nav failed");
+                    console.error("Keyboard nav failed:", e.message);
                 }
             }
 
-            // Attesa post-navigazione per permettere l'aggiornamento dell'URL
+            // Attesa post-navigazione per permettere il caricamento della prossima slide
             await new Promise(r => setTimeout(r, 1000));
-
-            const newHash = await page.evaluate(() => window.location.hash);
-
-            // CONTROLLO DI FINE: Se l'hash non cambia, siamo arrivati in fondo
-            if (newHash === currentHash) {
-                console.log("Hash did not change. Assuming end of presentation.");
-                hasNext = false;
-            } else {
-                currentHash = newHash;
-            }
         }
 
         console.log(`[BUILD] Stitched ${screenshots.length} slides. Generating PDF...`);
