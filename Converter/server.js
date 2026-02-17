@@ -2,7 +2,6 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const puppeteer = require('puppeteer');
-// Aggiungiamo 'child_process' per poter eseguire comandi di installazione se necessario
 const { execSync } = require('child_process');
 
 const app = express();
@@ -12,24 +11,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- AUTO-FIX PER RENDER ---
-// Poiché abbiamo usato --ignore-scripts locale, il browser potrebbe mancare.
-// Questa funzione forza il download di Chrome all'avvio del server se necessario.
+// --- AUTO-FIX: Garantisce che Chrome sia installato su Render ---
 function ensureBrowserInstalled() {
     try {
-        console.log("Verifying Chrome installation for Puppeteer...");
-        // Esegue il comando di installazione ufficiale di Puppeteer
-        // Questo scaricherà la versione corretta di Chrome nella cache
+        console.log("Verifying Chrome installation...");
         execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
-        console.log("Chrome verification/installation complete.");
     } catch (error) {
-        console.error("Warning: Failed to auto-install Chrome via script.", error);
+        console.error("Warning: Auto-install skipped/failed.", error);
     }
 }
-
-// Eseguiamo il controllo prima di avviare il server
 ensureBrowserInstalled();
-// ---------------------------
+// -------------------------------------------------------------
 
 app.post('/convert', async (req, res) => {
     const { url } = req.body;
@@ -38,17 +30,16 @@ app.post('/convert', async (req, res) => {
     let browser = null;
 
     try {
-        console.log('Launching browser for:', url);
+        console.log(`[START] Conversion requested for: ${url}`);
 
-        // Configurazione OTTIMIZZATA per Render.com (Free Tier)
         browser = await puppeteer.launch({
             headless: 'new',
             protocolTimeout: 60000,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage', // Fondamentale per la memoria
-                '--disable-gpu',           // Disabilita GPU
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
                 '--disable-extensions',
                 '--no-first-run',
                 '--no-zygote',
@@ -58,37 +49,76 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
+        // 1. Preparazione URL per Reveal.js
         let targetUrl = url;
-        // Aggiunge il parametro per la stampa di Reveal.js se manca
-        if (!url.includes('print-pdf')) {
-             targetUrl += (url.includes('?') ? '&' : '?') + 'print-pdf';
+        // Rimuove eventuali ancore finali (es. #/1) che confondono la stampa
+        targetUrl = targetUrl.split('#')[0];
+        // Aggiunge ?print-pdf
+        if (!targetUrl.includes('print-pdf')) {
+            targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'print-pdf';
         }
 
-        // Imposta viewport Full HD
-        await page.setViewport({ width: 1920, height: 1080 });
-        
-        // Timeout 60s
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // Iniezione CSS per pulire la pagina
+        // 2. Impostazione Viewport (non critica per il PDF ma aiuta il caricamento)
+        await page.setViewport({ width: 1280, height: 1024 });
+
+        // 3. Navigazione
+        await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+
+        // 4. INIEZIONE CSS AGGRESSIVA (Fix per vedere tutte le slide)
         await page.addStyleTag({
             content: `
+                /* Nasconde l'interfaccia */
                 .reveal .controls, .reveal .progress, .reveal .playback, .reveal .state-background,
                 .navigate-left, .navigate-right, .navigate-up, .navigate-down,
-                button[aria-label="Next slide"], button[aria-label="Previous slide"],
-                .bespoke-marp-osc, nav.navigation, .navigation-bar,
+                button, .bespoke-marp-osc, nav.navigation, .navigation-bar, 
                 .ytp-chrome-top, .ytp-chrome-bottom
                 { display: none !important; }
-                body { background-color: white !important; -webkit-print-color-adjust: exact; }
-                .reveal .slides section { display: block !important; position: relative !important; top: auto !important; left: auto !important; transform: none !important; }
+
+                /* Forza lo sfondo bianco */
+                body, .reveal { background-color: white !important; -webkit-print-color-adjust: exact; }
+
+                /* REVEAL.JS FIX: Forza tutte le slide ad essere visibili e verticali */
+                .reveal .slides section { 
+                    display: block !important; 
+                    opacity: 1 !important; 
+                    visibility: visible !important;
+                    position: relative !important; 
+                    top: auto !important; 
+                    left: auto !important; 
+                    transform: none !important;
+                    page-break-after: always !important; /* Forza pagina nuova */
+                    height: auto !important;
+                    min-height: 100vh !important;
+                    overflow: visible !important;
+                }
+                
+                /* Rimuove overflow nascosti che tagliano il contenuto */
+                .reveal .slides { 
+                    transform: none !important; 
+                    overflow: visible !important;
+                    height: auto !important;
+                }
+                .reveal-viewport { overflow: visible !important; }
             `
         });
 
+        // Attesa extra per assicurarsi che il layout "print" si assesti
+        await new Promise(r => setTimeout(r, 2000));
+
+        console.log(`[PDF] Generating PDF...`);
+
+        // 5. GENERAZIONE PDF (Con il parametro magico)
         const pdfBuffer = await page.pdf({
             format: 'A4',
             printBackground: true,
-            margin: { top: '10px', bottom: '10px', left: '10px', right: '10px' }
+            // QUESTO È IL PUNTO CHIAVE: Usa le dimensioni definite dal CSS di Reveal.js
+            preferCSSPageSize: true,
+            margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
         });
+
+        console.log(`[SUCCESS] PDF Size: ${pdfBuffer.length} bytes`);
 
         res.set({
             'Content-Type': 'application/pdf',
@@ -98,7 +128,7 @@ app.post('/convert', async (req, res) => {
         res.send(pdfBuffer);
 
     } catch (error) {
-        console.error('Error during conversion:', error);
+        console.error('[ERROR]', error);
         res.status(500).send('Conversion error: ' + error.message);
     } finally {
         if (browser) await browser.close();
