@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-// Richiede 'npm install pdf-lib'
+// Assicurati di avere pdf-lib nel package.json
 const { PDFDocument } = require('pdf-lib');
 
 // 1. IMPOSTAZIONE CRITICA: Definiamo la cartella della cache
@@ -54,15 +54,25 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        let targetUrl = url.split('#')[0];
+        // 1. PULIZIA URL
+        // Rimuoviamo ?print-pdf e ancore. Vogliamo la versione INTERATTIVA standard.
+        // Se usassimo ?print-pdf qui, Quarto/Reveal proverebbe a impaginare tutto in verticale,
+        // rompendo la nostra logica di cattura slide-per-slide.
+        let targetUrl = url.split('#')[0].split('?')[0];
+
         console.log(`[NAV] Going to: ${targetUrl}`);
 
-        // Risoluzione Desktop Standard (Cruciale per i PDF vettoriali)
+        // Risoluzione Desktop Standard
         const VIEWPORT_WIDTH = 1280;
-        const VIEWPORT_HEIGHT = 800;
+        const VIEWPORT_HEIGHT = 800; // 16:10 aspect ratio tipico delle slide
         await page.setViewport({ width: VIEWPORT_WIDTH, height: VIEWPORT_HEIGHT });
 
         await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 120000 });
+
+        // 2. FIX CRITICO: FORZIAMO LA MODALITÀ SCHERMO
+        // Questo impedisce al CSS @media print del sito di resettare il layout quando generiamo il PDF.
+        // Così il PDF cattura esattamente ciò che vede l'utente, mantenendo il testo vettoriale.
+        await page.emulateMediaType('screen');
 
         // FIX FOCUS
         try {
@@ -70,7 +80,7 @@ app.post('/convert', async (req, res) => {
             await page.focus('body');
         } catch (e) { }
 
-        console.log("[BOT] Detecting Framework & Preparing Vector Capture...");
+        console.log("[BOT] Detecting Framework...");
 
         const frameworkType = await page.evaluate(() => {
             if (window.Reveal) return 'reveal';
@@ -85,30 +95,21 @@ app.post('/convert', async (req, res) => {
             content: `
                 .controls, .progress, .slide-number, .header, .footer, 
                 .ytp-chrome-top, .ytp-chrome-bottom,
-                .navigate-right, .navigate-left, button[aria-label="Next slide"]
-                { opacity: 0 !important; }
-                
-                /* Forziamo la stampa come "Screen" per non rompere il layout */
-                @media print {
-                    body { -webkit-print-color-adjust: exact; }
-                    .reveal .slides section { visibility: inherit !important; display: inherit !important; }
-                }
+                .navigate-right, .navigate-left, button[aria-label="Next slide"],
+                .reveal-viewport { border: none !important; box-shadow: none !important; }
             `
         });
 
-        // Array per raccogliere i buffer PDF delle singole pagine
         const pdfChunks = [];
-
         let hasNext = true;
         let slideCount = 0;
-        const MAX_SLIDES = 100;
+        const MAX_SLIDES = 150;
         let previousScreenshotBase64 = "";
 
         while (hasNext && slideCount < MAX_SLIDES) {
             await new Promise(r => setTimeout(r, 1500));
 
-            // 1. SCATTO DI CONTROLLO (Immagine piccola per verificare se ci siamo mossi)
-            // Usiamo ancora lo screenshot SOLO per la logica di navigazione
+            // SCATTO DI CONTROLLO (Solo per verificare se la slide è cambiata)
             const checkBuffer = await page.screenshot({ encoding: 'base64', fullPage: false, type: 'jpeg', quality: 50 });
 
             if (slideCount > 0 && checkBuffer === previousScreenshotBase64) {
@@ -117,26 +118,30 @@ app.post('/convert', async (req, res) => {
             }
             previousScreenshotBase64 = checkBuffer;
 
-            // 2. CATTURA VETTORIALE (PDF Reale della singola slide)
-            // Invece di salvare l'immagine, stampiamo la vista corrente
+            // CATTURA VETTORIALE
+            // Stampiamo esattamente la viewport corrente.
+            // Grazie a emulateMediaType('screen'), il sito non sa che lo stiamo stampando.
             const slidePdfBuffer = await page.pdf({
                 width: `${VIEWPORT_WIDTH}px`,
                 height: `${VIEWPORT_HEIGHT}px`,
                 printBackground: true,
-                pageRanges: '1' // Stampa solo la vista corrente
+                pageRanges: '1'
             });
 
             pdfChunks.push(slidePdfBuffer);
             slideCount++;
             console.log(`Captured Vector PDF for slide ${slideCount}`);
 
-            // 3. NAVIGAZIONE (Stessa logica robusta di prima)
+            // NAVIGAZIONE
             const navResult = await page.evaluate((type) => {
-                if (type === 'reveal' && window.Reveal) {
+                // Reveal.js / Quarto
+                if ((type === 'reveal' || window.Reveal) && window.Reveal) {
                     if (window.Reveal.isLastSlide && window.Reveal.isLastSlide()) return 'finished';
                     window.Reveal.next();
                     return 'api';
                 }
+
+                // Cerca bottoni
                 const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"], .next, .navigate-right, .arrow-right'));
                 const nextBtn = candidates.find(el => {
                     const text = (el.innerText || "").toLowerCase();
@@ -164,10 +169,8 @@ app.post('/convert', async (req, res) => {
 
         console.log(`[BUILD] Merging ${pdfChunks.length} vector pages...`);
 
-        // 4. UNIONE DEI PDF (Merge)
-        // Usiamo pdf-lib per unire tutte le pagine singole in un unico file
+        // UNIONE PDF
         const mergedPdf = await PDFDocument.create();
-
         for (const chunk of pdfChunks) {
             const doc = await PDFDocument.load(chunk);
             const copiedPages = await mergedPdf.copyPages(doc, doc.getPageIndices());
