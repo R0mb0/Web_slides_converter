@@ -66,12 +66,22 @@ app.post('/convert', async (req, res) => {
         }
 
         console.log(`[NAV] Going to: ${targetUrl}`);
-        await page.setViewport({ width: 1280, height: 1024 });
+        // Aumentiamo la viewport in altezza per simulare uno schermo molto lungo
+        await page.setViewport({ width: 1280, height: 2000 });
 
         await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
 
         await page.addStyleTag({
             content: `
+                /* FIX CRITICO: Sblocca l'altezza dei contenitori principali */
+                html, body {
+                    width: 100%;
+                    height: auto !important; 
+                    margin: 0; 
+                    padding: 0;
+                    overflow: visible !important;
+                }
+
                 /* Nasconde l'interfaccia */
                 .reveal .controls, .reveal .progress, .reveal .playback, .reveal .state-background,
                 .navigate-left, .navigate-right, .navigate-up, .navigate-down,
@@ -82,7 +92,16 @@ app.post('/convert', async (req, res) => {
                 /* Forza lo sfondo bianco */
                 body, .reveal { background-color: white !important; -webkit-print-color-adjust: exact; }
 
-                /* REVEAL.JS FIX: Forza tutte le slide ad essere visibili e verticali */
+                /* FIX PER REVEAL.JS: Forza i contenitori delle slide a non tagliare il contenuto */
+                .reveal, .reveal .slides {
+                    position: static !important;
+                    width: auto !important;
+                    height: auto !important;
+                    overflow: visible !important;
+                    transform: none !important;
+                }
+
+                /* Forza ogni slide ad essere un blocco visibile */
                 .reveal .slides section { 
                     display: block !important; 
                     opacity: 1 !important; 
@@ -93,20 +112,16 @@ app.post('/convert', async (req, res) => {
                     transform: none !important;
                     page-break-after: always !important;
                     height: auto !important;
-                    min-height: 100vh !important;
+                    min-height: 100vh !important; /* Ogni slide occupa almeno una pagina */
                     overflow: visible !important;
                 }
                 
-                .reveal .slides { 
-                    transform: none !important; 
-                    overflow: visible !important;
-                    height: auto !important;
-                }
-                .reveal-viewport { overflow: visible !important; }
+                .reveal-viewport { overflow: visible !important; height: auto !important; }
             `
         });
 
-        await new Promise(r => setTimeout(r, 2000));
+        // Aumentiamo il tempo di attesa a 4 secondi per dare tempo al layout di assestarsi
+        await new Promise(r => setTimeout(r, 4000));
 
         console.log(`[PDF] Generating PDF...`);
 
