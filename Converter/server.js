@@ -1,8 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-// 1. IMPOSTAZIONE CRITICA: Definiamo la cartella della cache PRIMA di richiedere puppeteer
-// Questo costringe Puppeteer a scaricare e cercare Chrome dentro la cartella del progetto
+// 1. IMPOSTAZIONE CRITICA: Definiamo la cartella della cache
 process.env.PUPPETEER_CACHE_DIR = path.join(__dirname, '.cache');
 
 const puppeteer = require('puppeteer');
@@ -15,23 +14,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// --- AUTO-FIX: Scarica Chrome nella cartella locale (.cache) ---
+// --- AUTO-FIX: Scarica Chrome se manca ---
 function ensureBrowserInstalled() {
     try {
-        console.log("Checking/Installing Chrome for Puppeteer...");
-        console.log(`Cache directory: ${process.env.PUPPETEER_CACHE_DIR}`);
-
-        // Esegue il comando di installazione forzando la directory
+        console.log("Checking Chrome installation...");
         execSync('npx puppeteer browsers install chrome', { stdio: 'inherit' });
-
-        console.log("Chrome installation verified.");
     } catch (error) {
-        console.error("Warning: Auto-install script encountered an issue.", error);
+        console.error("Warning: Auto-install skipped.", error);
     }
 }
-// Eseguiamo il controllo all'avvio
 ensureBrowserInstalled();
-// -------------------------------------------------------------
 
 app.post('/convert', async (req, res) => {
     const { url } = req.body;
@@ -44,7 +36,7 @@ app.post('/convert', async (req, res) => {
 
         browser = await puppeteer.launch({
             headless: 'new',
-            protocolTimeout: 60000,
+            protocolTimeout: 120000, // 2 minuti di tempo massimo per connessioni lente
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -59,76 +51,63 @@ app.post('/convert', async (req, res) => {
 
         const page = await browser.newPage();
 
-        let targetUrl = url;
-        targetUrl = targetUrl.split('#')[0];
+        // 1. Preparazione URL
+        // Rimuoviamo qualsiasi ancora e aggiungiamo print-pdf
+        let targetUrl = url.split('#')[0];
         if (!targetUrl.includes('print-pdf')) {
             targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'print-pdf';
         }
 
         console.log(`[NAV] Going to: ${targetUrl}`);
-        // Aumentiamo la viewport in altezza per simulare uno schermo molto lungo
-        await page.setViewport({ width: 1280, height: 2000 });
 
-        await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 60000 });
+        // 2. Viewport Standard per Presentazioni
+        // Usiamo una risoluzione tipica da laptop per evitare layout mobile
+        await page.setViewport({ width: 1280, height: 800 });
 
+        // 3. Navigazione con attesa di rete
+        // Aumentiamo il timeout a 2 minuti per sicurezza
+        await page.goto(targetUrl, { waitUntil: 'networkidle0', timeout: 120000 });
+
+        // 4. ATTESA INTELLIGENTE (La chiave per risolvere il problema)
+        // Invece di aspettare secondi a caso, aspettiamo che Reveal.js abbia creato le pagine PDF.
+        // Reveal.js aggiunge la classe 'pdf-page' o imposta un'altezza elevata al body.
+        console.log("[WAIT] Waiting for Reveal.js to layout PDF pages...");
+
+        try {
+            await page.waitForFunction(() => {
+                // Controlla se l'altezza del documento è significativamente più grande della finestra
+                // Questo indica che le slide sono state "srotolate" verticalmente
+                return document.body.scrollHeight > window.innerHeight * 2;
+            }, { timeout: 15000 }); // Aspetta max 15 secondi che il layout cambi
+        } catch (e) {
+            console.log("Warning: Layout check timed out, proceeding anyway...");
+        }
+
+        // 5. INIEZIONE CSS DI SICUREZZA
+        // Forza lo sfondo bianco e nasconde i controlli, ma NON tocca il layout (ci pensa Reveal)
         await page.addStyleTag({
             content: `
-                /* FIX CRITICO: Sblocca l'altezza dei contenitori principali */
-                html, body {
-                    width: 100%;
-                    height: auto !important; 
-                    margin: 0; 
-                    padding: 0;
-                    overflow: visible !important;
-                }
-
-                /* Nasconde l'interfaccia */
                 .reveal .controls, .reveal .progress, .reveal .playback, .reveal .state-background,
                 .navigate-left, .navigate-right, .navigate-up, .navigate-down,
-                button, .bespoke-marp-osc, nav.navigation, .navigation-bar, 
-                .ytp-chrome-top, .ytp-chrome-bottom
+                .bespoke-marp-osc, nav.navigation, .navigation-bar,
+                .ytp-chrome-top, .ytp-chrome-bottom, .header, .footer
                 { display: none !important; }
 
-                /* Forza lo sfondo bianco */
-                body, .reveal { background-color: white !important; -webkit-print-color-adjust: exact; }
-
-                /* FIX PER REVEAL.JS: Forza i contenitori delle slide a non tagliare il contenuto */
-                .reveal, .reveal .slides {
-                    position: static !important;
-                    width: auto !important;
-                    height: auto !important;
-                    overflow: visible !important;
-                    transform: none !important;
-                }
-
-                /* Forza ogni slide ad essere un blocco visibile */
-                .reveal .slides section { 
-                    display: block !important; 
-                    opacity: 1 !important; 
-                    visibility: visible !important;
-                    position: relative !important; 
-                    top: auto !important; 
-                    left: auto !important; 
-                    transform: none !important;
-                    page-break-after: always !important;
-                    height: auto !important;
-                    min-height: 100vh !important; /* Ogni slide occupa almeno una pagina */
-                    overflow: visible !important;
-                }
+                body, .reveal { background-color: white !important; }
                 
-                .reveal-viewport { overflow: visible !important; height: auto !important; }
+                /* Forza la visibilità per sicurezza */
+                .reveal .slides section { visibility: visible !important; opacity: 1 !important; display: block !important; }
             `
         });
 
-        // Aumentiamo il tempo di attesa a 4 secondi per dare tempo al layout di assestarsi
-        await new Promise(r => setTimeout(r, 4000));
+        // Breve pausa finale per assicurarsi che font e immagini siano renderizzati
+        await new Promise(r => setTimeout(r, 3000));
 
         console.log(`[PDF] Generating PDF...`);
 
         const pdfBuffer = await page.pdf({
-            format: 'A4',
             printBackground: true,
-            preferCSSPageSize: true,
+            preferCSSPageSize: true, // Rispetta i page-break del sito
             margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' }
         });
 
