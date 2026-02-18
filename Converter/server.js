@@ -241,9 +241,9 @@ async function runConversionProcess(jobId, url) {
                 pdfChunks.push(slidePdfBuffer);
                 slideCount++;
 
-                if (slideCount % 5 === 0) { // Logga ogni 5 slide per pulizia
-                    logToClient(jobId, `Captured Slide #${slideCount}`);
-                }
+                // Logga ogni singola slide per feedback continuo
+                logToClient(jobId, `Captured Slide #${slideCount}`);
+
             } catch (pdfError) {
                 logToClient(jobId, `Warning: Failed to capture slide #${slideCount + 1}, skipping...`);
             }
