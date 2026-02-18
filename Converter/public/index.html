@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Slide Deck to PDF Converter</title>
-    <!-- Tailwind CSS per lo stile moderno -->
+    <title>Web_slides_conver</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -12,9 +11,9 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#10b981', // Verde Smeraldo
+                        primary: '#10b981',
                         primaryHover: '#059669',
-                        secondary: '#f97316', // Arancione
+                        secondary: '#f97316',
                         secondaryHover: '#ea580c',
                     }
                 }
@@ -23,32 +22,58 @@
     </script>
     <style>
         @keyframes shimmer {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(200%); }
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(200%);
+            }
         }
+
         .animate-fade-in-up {
             animation: fadeInUp 0.5s ease-out;
         }
+
         @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
-        /* Scrollbar personalizzata per il visualizzatore PDF */
+
         iframe::-webkit-scrollbar {
             width: 8px;
         }
+
         iframe::-webkit-scrollbar-thumb {
             background-color: #cbd5e1;
             border-radius: 4px;
+        }
+        /* Stile Terminale Log */
+        .terminal-log::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .terminal-log::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+
+        .terminal-log::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
         }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
 
-    <!-- Card Principale -->
     <div class="w-full max-w-4xl bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 md:p-12 transition-all duration-500">
-        
-        <!-- Intestazione -->
+
         <div class="text-center mb-10">
             <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-2 bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
                 Web Slides Converter
@@ -58,7 +83,7 @@
             </p>
         </div>
 
-        <!-- SEZIONE INPUT -->
+        <!-- INPUT SECTION -->
         <div id="inputSection" class="w-full max-w-2xl mx-auto space-y-6">
             <div class="relative group">
                 <div class="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-xl opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200 blur"></div>
@@ -66,8 +91,8 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-400 ml-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                     </svg>
-                    <input type="url" id="urlInput" placeholder="Paste your slide URL here" 
-                        class="w-full bg-transparent border-none focus:ring-0 text-lg p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400" required>
+                    <input type="url" id="urlInput" placeholder="Paste your slide URL here"
+                           class="w-full bg-transparent border-none focus:ring-0 text-lg p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400" required>
                 </div>
             </div>
 
@@ -76,21 +101,31 @@
             </button>
 
             <div class="text-center text-slate-500 dark:text-slate-400 text-sm mt-6 px-4">
-                <p>Paste the link to any HTML presentation (Reveal.js, Marp, etc.). For generating a clean PDF removing navigation buttons.</p>
+                <p>Paste the link to any HTML presentation (Reveal.js, Marp, etc.). We'll generate a clean PDF removing navigation buttons.</p>
             </div>
         </div>
 
-        <!-- SEZIONE CARICAMENTO -->
-        <div id="loadingSection" class="hidden w-full flex-col items-center justify-center py-10 space-y-4">
-            <div class="w-full max-w-md bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden relative">
-                <div class="bg-primary h-full rounded-full w-full absolute top-0 left-0 opacity-80"></div>
-                <div class="bg-white/40 h-full absolute top-0 left-0 w-1/2 animate-[shimmer_1.5s_infinite]"></div>
+        <!-- LOADING SECTION WITH LOGS -->
+        <div id="loadingSection" class="hidden w-full flex-col items-center justify-center py-6 space-y-6">
+            <!-- Progress Bar -->
+            <div class="w-full max-w-md space-y-2 text-center">
+                <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden relative">
+                    <div class="bg-primary h-full rounded-full w-full absolute top-0 left-0 opacity-80"></div>
+                    <div class="bg-white/40 h-full absolute top-0 left-0 w-1/2 animate-[shimmer_1.5s_infinite]"></div>
+                </div>
+                <p class="text-lg font-medium animate-pulse text-slate-600 dark:text-slate-300">Processing slides...</p>
             </div>
-            <p class="text-lg font-medium animate-pulse text-slate-600 dark:text-slate-300">Processing slides...</p>
-            <p class="text-sm text-slate-500">Please wait, this might take up to a minute.</p>
+
+            <!-- Terminal Log Window -->
+            <div class="w-full max-w-2xl bg-slate-900 rounded-xl p-4 shadow-inner border border-slate-700 font-mono text-sm text-green-400 h-48 overflow-y-auto terminal-log flex flex-col-reverse" id="logContainer">
+                <div id="logContent" class="flex flex-col gap-1">
+                    <!-- Logs will appear here -->
+                    <span class="opacity-50">Waiting for server...</span>
+                </div>
+            </div>
         </div>
 
-        <!-- SEZIONE RISULTATO -->
+        <!-- RESULT SECTION -->
         <div id="resultSection" class="hidden w-full flex-col space-y-6 animate-fade-in-up">
             <div class="w-full h-[600px] bg-slate-100 dark:bg-slate-900 rounded-2xl border-2 border-slate-200 dark:border-slate-700 overflow-hidden shadow-inner relative">
                 <iframe id="pdfPreview" class="w-full h-full" src=""></iframe>
@@ -108,46 +143,34 @@
 
     </div>
 
-    <!-- LOGICA JAVASCRIPT -->
     <script>
         let currentPdfBlobUrl = null;
+        let eventSource = null;
 
         async function startConversion() {
             const url = document.getElementById('urlInput').value;
             if (!url) return alert('Please enter a valid URL');
 
-            // Mostra animazione di caricamento
+            // Reset UI
             document.getElementById('inputSection').classList.add('hidden');
             document.getElementById('loadingSection').classList.remove('hidden');
             document.getElementById('loadingSection').classList.add('flex');
+            document.getElementById('logContent').innerHTML = '<span class="text-slate-500">> Initializing connection...</span>';
 
             try {
-                // Chiama il backend
-                const response = await fetch('/convert', {
+                // 1. Chiedi al server di iniziare il lavoro
+                const startResponse = await fetch('/api/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ url: url })
                 });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(errorText || 'Conversion failed');
-                }
+                if (!startResponse.ok) throw new Error('Failed to start conversion');
 
-                // Riceve il PDF come Blob
-                const blob = await response.blob();
-                currentPdfBlobUrl = URL.createObjectURL(blob);
+                const { jobId } = await startResponse.json();
 
-                // Mostra il PDF nell'iframe
-                const previewFrame = document.getElementById('pdfPreview');
-                // #toolbar=0 nasconde i menu del browser
-                previewFrame.src = currentPdfBlobUrl + "#toolbar=0&navpanes=0&scrollbar=0"; 
-
-                // Mostra i risultati
-                document.getElementById('loadingSection').classList.add('hidden');
-                document.getElementById('loadingSection').classList.remove('flex');
-                document.getElementById('resultSection').classList.remove('hidden');
-                document.getElementById('resultSection').classList.add('flex');
+                // 2. Connettiti allo stream dei log (SSE)
+                connectToLogStream(jobId);
 
             } catch (error) {
                 alert('Error: ' + error.message);
@@ -155,17 +178,77 @@
             }
         }
 
+        function connectToLogStream(jobId) {
+            if (eventSource) eventSource.close();
+
+            eventSource = new EventSource(`/api/stream/${jobId}`);
+            const logContent = document.getElementById('logContent');
+
+            eventSource.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'log') {
+                    // Aggiungi riga di log
+                    const logLine = document.createElement('div');
+                    logLine.className = 'border-l-2 border-green-500 pl-2';
+                    logLine.textContent = `> ${data.message}`;
+                    logContent.appendChild(logLine);
+                    // Scroll automatico verso il basso
+                    const container = document.getElementById('logContainer');
+                    container.scrollTop = container.scrollHeight;
+                }
+                else if (data.type === 'done') {
+                    eventSource.close();
+                    showResult(jobId);
+                }
+                else if (data.type === 'error') {
+                    eventSource.close();
+                    const errLine = document.createElement('div');
+                    errLine.className = 'text-red-500 font-bold';
+                    errLine.textContent = `ERROR: ${data.message}`;
+                    logContent.appendChild(errLine);
+                    alert('Conversion Failed: ' + data.message);
+                    setTimeout(resetApp, 3000);
+                }
+            };
+
+            eventSource.onerror = () => {
+                console.error("EventSource failed.");
+                eventSource.close();
+            };
+        }
+
+        async function showResult(jobId) {
+            // Scarica il PDF finale dal nuovo endpoint
+            try {
+                const response = await fetch(`/api/download/${jobId}`);
+                const blob = await response.blob();
+                currentPdfBlobUrl = URL.createObjectURL(blob);
+
+                const previewFrame = document.getElementById('pdfPreview');
+                previewFrame.src = currentPdfBlobUrl + "#toolbar=0&navpanes=0&scrollbar=0";
+
+                document.getElementById('loadingSection').classList.add('hidden');
+                document.getElementById('loadingSection').classList.remove('flex');
+                document.getElementById('resultSection').classList.remove('hidden');
+                document.getElementById('resultSection').classList.add('flex');
+            } catch (e) {
+                alert("Error downloading final PDF");
+            }
+        }
+
         function downloadPDF() {
             if (!currentPdfBlobUrl) return;
             const link = document.createElement('a');
             link.href = currentPdfBlobUrl;
-            link.download = `slides-${Date.now()}.pdf`; 
+            link.download = `slides_vector_${Date.now()}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         }
 
         function resetApp() {
+            if (eventSource) eventSource.close();
             document.getElementById('resultSection').classList.add('hidden');
             document.getElementById('resultSection').classList.remove('flex');
             document.getElementById('loadingSection').classList.add('hidden');
