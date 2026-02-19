@@ -3,8 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web_slides_conver</title>
+    <title>Slide Deck to PDF (Robust)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Libreria PDF-LIB per unire i pezzi nel browser -->
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script>
         tailwind.config = {
             darkMode: 'media',
@@ -13,251 +15,188 @@
                     colors: {
                         primary: '#10b981',
                         primaryHover: '#059669',
-                        secondary: '#f97316',
-                        secondaryHover: '#ea580c',
                     }
                 }
             }
         }
     </script>
     <style>
-        @keyframes shimmer {
-            0% {
-                transform: translateX(-100%);
-            }
-
-            100% {
-                transform: translateX(200%);
-            }
-        }
-
-        .animate-fade-in-up {
-            animation: fadeInUp 0.5s ease-out;
-        }
-
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        iframe::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        iframe::-webkit-scrollbar-thumb {
-            background-color: #cbd5e1;
-            border-radius: 4px;
-        }
-        /* Stile Terminale Log */
-        .terminal-log::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .terminal-log::-webkit-scrollbar-track {
-            background: #1e293b;
-        }
-
-        .terminal-log::-webkit-scrollbar-thumb {
-            background: #475569;
-            border-radius: 3px;
-        }
+        .terminal-log::-webkit-scrollbar { width: 6px; }
+        .terminal-log::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
 
-    <div class="w-full max-w-4xl bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 md:p-12 transition-all duration-500">
-
+    <div class="w-full max-w-4xl bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 md:p-12">
+        
         <div class="text-center mb-10">
-            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-2 bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
-                Web Slides Converter
+            <h1 class="text-4xl md:text-5xl font-extrabold mb-2 bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
+                Slide Deck Converter
             </h1>
-            <p class="text-slate-500 dark:text-slate-400 text-lg">
-                Turn HTML presentations into offline PDFs instantly.
+            <p class="text-slate-500 dark:text-slate-400">
+                Safe-Batch Technology &trade; - No crash, even for 200+ slides.
             </p>
         </div>
 
-        <!-- INPUT SECTION -->
+        <!-- INPUT -->
         <div id="inputSection" class="w-full max-w-2xl mx-auto space-y-6">
-            <div class="relative group">
-                <div class="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-cyan-500 rounded-xl opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200 blur"></div>
-                <div class="relative bg-white dark:bg-slate-900 rounded-xl p-2 flex items-center shadow-sm border border-slate-200 dark:border-slate-700">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-slate-400 ml-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                    </svg>
-                    <input type="url" id="urlInput" placeholder="Paste your slide URL here"
-                           class="w-full bg-transparent border-none focus:ring-0 text-lg p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400" required>
-                </div>
+            <div class="relative bg-white dark:bg-slate-900 rounded-xl p-2 flex items-center shadow-sm border border-slate-200 dark:border-slate-700">
+                <input type="url" id="urlInput" placeholder="Paste slide URL here..." 
+                    class="w-full bg-transparent border-none focus:ring-0 text-lg p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400" required>
             </div>
-
-            <button onclick="startConversion()" class="w-full bg-primary hover:bg-primaryHover text-white font-bold py-4 px-6 rounded-2xl shadow-lg transform transition hover:scale-[1.02] active:scale-[0.98] flex justify-center items-center text-xl">
-                Convert to PDF
+            <button onclick="startBatchProcess()" class="w-full bg-primary hover:bg-primaryHover text-white font-bold py-4 rounded-2xl shadow-lg text-xl transition transform hover:scale-[1.02]">
+                Start Conversion
             </button>
-
-            <div class="text-center text-slate-500 dark:text-slate-400 text-sm mt-6 px-4">
-                <p>Paste the link to any HTML presentation (Reveal.js, Marp, etc.). For generating a clean PDF ;)</p>
-            </div>
         </div>
 
-        <!-- LOADING SECTION WITH LOGS -->
+        <!-- LOADING & LOGS -->
         <div id="loadingSection" class="hidden w-full flex-col items-center justify-center py-6 space-y-6">
-            <!-- Progress Bar -->
             <div class="w-full max-w-md space-y-2 text-center">
                 <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden relative">
-                    <div class="bg-primary h-full rounded-full w-full absolute top-0 left-0 opacity-80"></div>
-                    <div class="bg-white/40 h-full absolute top-0 left-0 w-1/2 animate-[shimmer_1.5s_infinite]"></div>
+                    <div id="progressBar" class="bg-primary h-full rounded-full w-0 transition-all duration-500"></div>
                 </div>
-                <p class="text-lg font-medium animate-pulse text-slate-600 dark:text-slate-300">Processing slides...</p>
+                <p id="statusText" class="text-lg font-medium text-slate-600 dark:text-slate-300">Initializing...</p>
             </div>
 
-            <!-- Terminal Log Window -->
-            <div class="w-full max-w-2xl bg-slate-900 rounded-xl p-4 shadow-inner border border-slate-700 font-mono text-sm text-green-400 h-48 overflow-y-auto terminal-log flex flex-col-reverse" id="logContainer">
-                <div id="logContent" class="flex flex-col gap-1">
-                    <!-- Logs will appear here -->
-                    <span class="opacity-50">Waiting for server...</span>
-                </div>
+            <div class="w-full max-w-2xl bg-slate-900 rounded-xl p-4 shadow-inner border border-slate-700 font-mono text-sm text-green-400 h-64 overflow-y-auto terminal-log flex flex-col-reverse" id="logContainer">
+                <div id="logContent" class="flex flex-col gap-1"></div>
             </div>
         </div>
 
-        <!-- RESULT SECTION -->
-        <div id="resultSection" class="hidden w-full flex-col space-y-6 animate-fade-in-up">
-            <div class="w-full h-[600px] bg-slate-100 dark:bg-slate-900 rounded-2xl border-2 border-slate-200 dark:border-slate-700 overflow-hidden shadow-inner relative">
+        <!-- RESULT -->
+        <div id="resultSection" class="hidden w-full flex-col space-y-6">
+            <div class="w-full h-[600px] bg-slate-100 dark:bg-slate-900 rounded-2xl border-2 overflow-hidden relative">
                 <iframe id="pdfPreview" class="w-full h-full" src=""></iframe>
             </div>
-
-            <div class="flex flex-col md:flex-row gap-4 justify-center pt-4">
-                <button onclick="resetApp()" class="flex-1 bg-secondary hover:bg-secondaryHover text-white font-bold py-3 px-6 rounded-2xl shadow-md transform transition hover:scale-[1.02] flex items-center justify-center gap-2">
-                    Convert Another
-                </button>
-                <button onclick="downloadPDF()" class="flex-1 bg-primary hover:bg-primaryHover text-white font-bold py-3 px-6 rounded-2xl shadow-md transform transition hover:scale-[1.02] flex items-center justify-center gap-2">
-                    Download PDF
-                </button>
-            </div>
+            <button onclick="downloadFinalPDF()" class="w-full bg-primary hover:bg-primaryHover text-white font-bold py-3 rounded-2xl shadow-md">
+                Download Full PDF
+            </button>
+            <button onclick="location.reload()" class="w-full bg-slate-500 hover:bg-slate-600 text-white font-bold py-3 rounded-2xl shadow-md">
+                Convert Another
+            </button>
         </div>
 
     </div>
 
     <script>
-        let currentPdfBlobUrl = null;
-        let eventSource = null;
+        let collectedPdfChunks = []; // Qui accumuliamo i pezzi (ArrayBuffer)
+        let finalPdfBlobUrl = null;
 
-        async function startConversion() {
+        function addLog(msg, type = 'info') {
+            const logContent = document.getElementById('logContent');
+            const line = document.createElement('div');
+            line.className = type === 'error' ? 'text-red-500 font-bold' : 'border-l-2 border-green-500 pl-2';
+            line.textContent = `> ${msg}`;
+            logContent.appendChild(line);
+            document.getElementById('logContainer').scrollTop = document.getElementById('logContainer').scrollHeight;
+        }
+
+        async function startBatchProcess() {
             const url = document.getElementById('urlInput').value;
-            if (!url) return alert('Please enter a valid URL');
+            if (!url) return alert('Enter URL');
 
-            // Reset UI
             document.getElementById('inputSection').classList.add('hidden');
             document.getElementById('loadingSection').classList.remove('hidden');
             document.getElementById('loadingSection').classList.add('flex');
-            document.getElementById('logContent').innerHTML = '<span class="text-slate-500">> Initializing connection...</span>';
+            
+            collectedPdfChunks = []; // Reset
+            let nextSlideIndex = 0;
+            let isFinished = false;
+            const BATCH_SIZE = 25; // 25 Slide alla volta per stare tranquilli con la RAM del server
+            let totalSlidesProcessed = 0;
+
+            addLog("Starting Safe-Batch Process...");
 
             try {
-                // 1. Chiedi al server di iniziare il lavoro
-                const startResponse = await fetch('/api/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: url })
-                });
+                while (!isFinished) {
+                    addLog(`Requesting batch starting at slide ${nextSlideIndex}...`);
+                    document.getElementById('statusText').innerText = `Processing batch from slide ${nextSlideIndex}...`;
 
-                if (!startResponse.ok) throw new Error('Failed to start conversion');
+                    // Chiamata al server per un pezzetto
+                    const response = await fetch('/api/convert-batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            url: url, 
+                            startSlide: nextSlideIndex, 
+                            batchSize: BATCH_SIZE 
+                        })
+                    });
 
-                const { jobId } = await startResponse.json();
+                    if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
 
-                // 2. Connettiti allo stream dei log (SSE)
-                connectToLogStream(jobId);
+                    const data = await response.json();
+                    
+                    if (!data.success) throw new Error(data.error);
+
+                    // Convertiamo il base64 ricevuto in ArrayBuffer
+                    const binaryString = window.atob(data.chunk);
+                    const len = binaryString.length;
+                    const bytes = new Uint8Array(len);
+                    for (let i = 0; i < len; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    collectedPdfChunks.push(bytes.buffer);
+                    
+                    totalSlidesProcessed += data.count;
+                    addLog(`Received ${data.count} slides. Total so far: ${totalSlidesProcessed}`);
+                    
+                    // Aggiorna UI
+                    nextSlideIndex = data.nextIndex;
+                    isFinished = data.isFinished;
+
+                    // Piccola pausa per non stressare il server
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+
+                addLog("All batches received. Merging PDFs in browser...");
+                document.getElementById('statusText').innerText = "Merging final PDF...";
+                
+                await mergeAndShowPDF();
 
             } catch (error) {
-                alert('Error: ' + error.message);
-                resetApp();
+                addLog(`CRITICAL ERROR: ${error.message}`, 'error');
+                alert("Process Failed. Check logs.");
             }
         }
 
-        function connectToLogStream(jobId) {
-            if (eventSource) eventSource.close();
-
-            eventSource = new EventSource(`/api/stream/${jobId}`);
-            const logContent = document.getElementById('logContent');
-
-            eventSource.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-
-                if (data.type === 'log') {
-                    // Aggiungi riga di log
-                    const logLine = document.createElement('div');
-                    logLine.className = 'border-l-2 border-green-500 pl-2';
-                    logLine.textContent = `> ${data.message}`;
-                    logContent.appendChild(logLine);
-                    // Scroll automatico verso il basso
-                    const container = document.getElementById('logContainer');
-                    container.scrollTop = container.scrollHeight;
-                }
-                else if (data.type === 'done') {
-                    eventSource.close();
-                    showResult(jobId);
-                }
-                else if (data.type === 'error') {
-                    eventSource.close();
-                    const errLine = document.createElement('div');
-                    errLine.className = 'text-red-500 font-bold';
-                    errLine.textContent = `ERROR: ${data.message}`;
-                    logContent.appendChild(errLine);
-                    alert('Conversion Failed: ' + data.message);
-                    setTimeout(resetApp, 3000);
-                }
-            };
-
-            eventSource.onerror = () => {
-                console.error("EventSource failed.");
-                eventSource.close();
-            };
-        }
-
-        async function showResult(jobId) {
-            // Scarica il PDF finale dal nuovo endpoint
+        async function mergeAndShowPDF() {
             try {
-                const response = await fetch(`/api/download/${jobId}`);
-                const blob = await response.blob();
-                currentPdfBlobUrl = URL.createObjectURL(blob);
+                const { PDFDocument } = PDFLib;
+                const finalPdf = await PDFDocument.create();
 
-                const previewFrame = document.getElementById('pdfPreview');
-                previewFrame.src = currentPdfBlobUrl + "#toolbar=0&navpanes=0&scrollbar=0";
+                for (const chunkBuffer of collectedPdfChunks) {
+                    const chunkDoc = await PDFDocument.load(chunkBuffer);
+                    const copiedPages = await finalPdf.copyPages(chunkDoc, chunkDoc.getPageIndices());
+                    copiedPages.forEach((page) => finalPdf.addPage(page));
+                }
+
+                const pdfBytes = await finalPdf.save();
+                const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                finalPdfBlobUrl = URL.createObjectURL(blob);
 
                 document.getElementById('loadingSection').classList.add('hidden');
                 document.getElementById('loadingSection').classList.remove('flex');
                 document.getElementById('resultSection').classList.remove('hidden');
                 document.getElementById('resultSection').classList.add('flex');
+                
+                document.getElementById('pdfPreview').src = finalPdfBlobUrl + "#toolbar=0";
+                addLog("Done! PDF Ready.");
+
             } catch (e) {
-                alert("Error downloading final PDF");
+                addLog(`Merge Error: ${e.message}`, 'error');
             }
         }
 
-        function downloadPDF() {
-            if (!currentPdfBlobUrl) return;
+        function downloadFinalPDF() {
+            if (!finalPdfBlobUrl) return;
             const link = document.createElement('a');
-            link.href = currentPdfBlobUrl;
-            link.download = `slides_vector_${Date.now()}.pdf`;
+            link.href = finalPdfBlobUrl;
+            link.download = `Full_Presentation_${Date.now()}.pdf`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-        }
-
-        function resetApp() {
-            if (eventSource) eventSource.close();
-            document.getElementById('resultSection').classList.add('hidden');
-            document.getElementById('resultSection').classList.remove('flex');
-            document.getElementById('loadingSection').classList.add('hidden');
-            document.getElementById('inputSection').classList.remove('hidden');
-            document.getElementById('urlInput').value = '';
-            if (currentPdfBlobUrl) {
-                URL.revokeObjectURL(currentPdfBlobUrl);
-                currentPdfBlobUrl = null;
-            }
         }
     </script>
 </body>
