@@ -29,11 +29,12 @@ app.post('/api/convert-batch', async (req, res) => {
     
     if (!url) return res.status(400).send('URL required');
     
+    // startSlide ora rappresenta i "passi (o clic su Avanti)" totali effettuati
     const start = startSlide || 0;
     const limit = batchSize || 10;
-    const batchLogs = []; // Array per raccogliere i log da inviare al client
+    const batchLogs = [];
 
-    console.log(`[BATCH] Request: Slides ${start} to ${start + limit} for ${url}`);
+    console.log(`[BATCH] Request: Steps ${start} to ${start + limit} for ${url}`);
 
     let browser = null;
 
@@ -62,55 +63,32 @@ app.post('/api/convert-batch', async (req, res) => {
             await page.mouse.click(VIEWPORT_WIDTH / 2, VIEWPORT_HEIGHT / 2);
             await page.focus('body');
         } catch (e) {}
-        
-        // Rilevamento Framework
-        const frameworkType = await page.evaluate(() => {
-            if (window.Reveal) return 'reveal';
-            if (window.remark) return 'remark';
-            return 'generic';
-        });
 
-        // --- ANTI-LOOP CHECK ---
-        // Se è Reveal.js, chiediamo quante slide ci sono in totale.
-        // Se il client chiede la slide 100 ma ce ne sono solo 46, fermiamo tutto.
-        let totalSlidesKnown = null;
-        if (frameworkType === 'reveal') {
-            totalSlidesKnown = await page.evaluate(() => {
-                try {
-                    return window.Reveal.getTotalSlides();
-                } catch(e) { return null; }
-            });
-            
-            if (totalSlidesKnown !== null) {
-                console.log(`[INFO] Total slides detected: ${totalSlidesKnown}`);
-                if (start >= totalSlidesKnown) {
-                    // Siamo già oltre la fine, ferma il processo
-                    return res.json({
-                        success: true,
-                        chunk: "", // Niente PDF
-                        count: 0,
-                        isFinished: true,
-                        nextIndex: start,
-                        logs: ["End of presentation reached (Index limit)."]
-                    });
+        // Attendiamo che Reveal.js sia inizializzato (utile per presentazioni pesanti come Quarto)
+        await page.waitForFunction(() => window.Reveal !== undefined || document.body !== null, { timeout: 5000 }).catch(() => {});
+
+        // --- IL VERO FIX: FAST-FORWARD ---
+        // Simula la pressione del tasto avanti per ripristinare esattamente i frammenti
+        if (start > 0) {
+            batchLogs.push(`Restoring state: Fast-forwarding ${start} steps...`);
+            await page.evaluate(async (targetSteps) => {
+                for(let i=0; i < targetSteps; i++) {
+                    if (window.Reveal) {
+                        window.Reveal.next();
+                    } else {
+                        // Per presentazioni non-Reveal
+                        const nextBtn = document.querySelector('.navigate-right, .next');
+                        if (nextBtn) nextBtn.click();
+                        else document.dispatchEvent(new KeyboardEvent('keydown', {'key': 'ArrowRight'}));
+                    }
                 }
-            }
+            }, start);
+            
+            // Diamo tempo alle animazioni del fast-forward di stabilizzarsi prima di scattare le foto
+            await new Promise(r => setTimeout(r, 2000));
         }
 
-        // Saltiamo alla slide di partenza
-        await page.evaluate(async (type, targetIndex) => {
-            if (type === 'reveal' && window.Reveal) {
-                window.Reveal.slide(targetIndex);
-            }
-        }, frameworkType, start);
-
-        if (frameworkType !== 'reveal' && start > 0) {
-            for(let i=0; i<start; i++) {
-                await page.keyboard.press('ArrowRight');
-            }
-        }
-
-        // Iniezione CSS
+        // Iniezione CSS per nascondere controlli e barre
         await page.addStyleTag({
             content: `
                 .controls, .progress, .slide-number, .header, .footer, 
@@ -129,23 +107,9 @@ app.post('/api/convert-batch', async (req, res) => {
         let reachedEnd = false;
 
         while (currentCount < limit && hasNext) {
-            // Controllo Limite Totale (Anti-Loop)
-            if (totalSlidesKnown !== null && (start + currentCount) >= totalSlidesKnown) {
-                batchLogs.push(`Reached last slide (${totalSlidesKnown}). Stopping.`);
-                reachedEnd = true;
-                break;
-            }
+            await new Promise(r => setTimeout(r, 1500)); // Attesa caricamento elementi visivi
 
-            await new Promise(r => setTimeout(r, 1500));
-
-            const checkBuffer = await page.screenshot({ encoding: 'base64', fullPage: false, type: 'jpeg', quality: 40 });
-            if (currentCount > 0 && checkBuffer === previousScreenshotBase64) {
-                batchLogs.push("Visual check: Slide didn't change. End reached.");
-                reachedEnd = true;
-                break;
-            }
-            previousScreenshotBase64 = checkBuffer;
-
+            // Cattura la pagina corrente
             const slidePdf = await page.pdf({
                 width: `${VIEWPORT_WIDTH}px`,
                 height: `${VIEWPORT_HEIGHT}px`,
@@ -155,33 +119,65 @@ app.post('/api/convert-batch', async (req, res) => {
             
             pdfChunks.push(slidePdf);
             currentCount++;
-            
-            // Aggiungiamo il log per questa slide
-            batchLogs.push(`Captured Slide #${start + currentCount}`);
+            batchLogs.push(`Captured Step #${start + currentCount}`);
 
-            const navResult = await page.evaluate((type) => {
-                if ((type === 'reveal' || window.Reveal) && window.Reveal) {
-                    if (window.Reveal.isLastSlide && window.Reveal.isLastSlide()) return 'finished';
+            // Avanzamento e Controllo Fine Presentazione (Matematico)
+            const navResult = await page.evaluate(() => {
+                if (window.Reveal) {
+                    const before = window.Reveal.getIndices();
                     window.Reveal.next();
-                    return 'api';
-                }
-                const nextBtn = document.querySelector('.navigate-right, .next, button[aria-label="Next slide"]');
-                if (nextBtn) { nextBtn.click(); return 'click'; }
-                return 'fallback';
-            }, frameworkType);
+                    const after = window.Reveal.getIndices();
 
-            if (navResult === 'finished') {
-                batchLogs.push("Framework reported end.");
+                    // Se le coordinate (h, v, f) NON sono cambiate, non c'è più nulla da mostrare.
+                    if (before.h === after.h && before.v === after.v && before.f === after.f) {
+                        return 'reveal_finished';
+                    }
+                    // Se la slide orizzontale (h) è tornata indietro a 0, la presentazione è in Loop ed è finita.
+                    if (after.h < before.h && after.h === 0) {
+                        return 'reveal_looped';
+                    }
+                    return 'continue';
+                }
+
+                // Fallback per framework sconosciuti
+                const nextBtn = document.querySelector('.navigate-right, .next, button[aria-label="Next slide"]');
+                if (nextBtn) { 
+                    if (nextBtn.disabled || nextBtn.classList.contains('disabled')) return 'generic_finished';
+                    nextBtn.click(); 
+                    return 'continue'; 
+                }
+                
+                return 'fallback';
+            });
+
+            // Gestione dei risultati del blocco evaluate
+            if (navResult === 'reveal_finished' || navResult === 'generic_finished') {
+                batchLogs.push("End of presentation mathematically confirmed.");
                 reachedEnd = true;
                 break;
             }
+            if (navResult === 'reveal_looped') {
+                batchLogs.push("Presentation looped back to start. Stopping.");
+                reachedEnd = true;
+                break;
+            }
+
+            // Check visivo di sicurezza solo per il fallback totale
             if (navResult === 'fallback') {
                 try { await page.keyboard.press('ArrowRight'); } catch (e) {}
+                const checkBuffer = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 10 });
+                if (currentCount > 1 && checkBuffer === previousScreenshotBase64) {
+                    batchLogs.push("Visual check: Slide didn't change. End reached.");
+                    reachedEnd = true;
+                    break;
+                }
+                previousScreenshotBase64 = checkBuffer;
             }
         }
 
-        console.log(`[BATCH] Captured ${pdfChunks.length} slides.`);
+        console.log(`[BATCH] Captured ${pdfChunks.length} steps.`);
 
+        // Unione temporanea dei chunk di questo batch
         const mergedPdf = await PDFDocument.create();
         for (const chunk of pdfChunks) {
             const doc = await PDFDocument.load(chunk);
@@ -197,8 +193,8 @@ app.post('/api/convert-batch', async (req, res) => {
             chunk: base64Pdf,
             count: pdfChunks.length,
             isFinished: reachedEnd,
-            nextIndex: start + currentCount,
-            logs: batchLogs // Inviamo i log al frontend
+            nextIndex: start + currentCount, // Salva l'esatto numero di passi completati
+            logs: batchLogs
         });
 
     } catch (error) {
