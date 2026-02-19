@@ -15,6 +15,8 @@
                     colors: {
                         primary: '#10b981',
                         primaryHover: '#059669',
+                        secondary: '#f97316', // Arancione ripristinato
+                        secondaryHover: '#ea580c',
                     }
                 }
             }
@@ -23,6 +25,14 @@
     <style>
         .terminal-log::-webkit-scrollbar { width: 6px; }
         .terminal-log::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        @keyframes loading-bar {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(0%); }
+            100% { transform: translateX(100%); }
+        }
+        .animate-loading {
+            animation: loading-bar 2s infinite linear;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
@@ -52,8 +62,9 @@
         <!-- LOADING & LOGS -->
         <div id="loadingSection" class="hidden w-full flex-col items-center justify-center py-6 space-y-6">
             <div class="w-full max-w-md space-y-2 text-center">
+                <!-- Barra di Progressione Animata Correttamente -->
                 <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden relative">
-                    <div id="progressBar" class="bg-primary h-full rounded-full w-0 transition-all duration-500"></div>
+                    <div class="bg-primary h-full rounded-full w-full absolute top-0 left-0 animate-loading opacity-75"></div>
                 </div>
                 <p id="statusText" class="text-lg font-medium text-slate-600 dark:text-slate-300">Initializing...</p>
             </div>
@@ -68,18 +79,28 @@
             <div class="w-full h-[600px] bg-slate-100 dark:bg-slate-900 rounded-2xl border-2 overflow-hidden relative">
                 <iframe id="pdfPreview" class="w-full h-full" src=""></iframe>
             </div>
-            <button onclick="downloadFinalPDF()" class="w-full bg-primary hover:bg-primaryHover text-white font-bold py-3 rounded-2xl shadow-md">
-                Download Full PDF
-            </button>
-            <button onclick="location.reload()" class="w-full bg-slate-500 hover:bg-slate-600 text-white font-bold py-3 rounded-2xl shadow-md">
-                Convert Another
-            </button>
+            
+            <!-- Pulsanti Affiancati (Row) e Colorati Correttamente -->
+            <div class="flex flex-col md:flex-row gap-4 w-full">
+                <button onclick="location.reload()" class="flex-1 bg-secondary hover:bg-secondaryHover text-white font-bold py-3 rounded-2xl shadow-md transition transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Convert Another
+                </button>
+                <button onclick="downloadFinalPDF()" class="flex-1 bg-primary hover:bg-primaryHover text-white font-bold py-3 rounded-2xl shadow-md transition transform hover:scale-[1.02] flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Download Full PDF
+                </button>
+            </div>
         </div>
 
     </div>
 
     <script>
-        let collectedPdfChunks = []; // Qui accumuliamo i pezzi (ArrayBuffer)
+        let collectedPdfChunks = []; 
         let finalPdfBlobUrl = null;
 
         function addLog(msg, type = 'info') {
@@ -99,10 +120,9 @@
             document.getElementById('loadingSection').classList.remove('hidden');
             document.getElementById('loadingSection').classList.add('flex');
             
-            collectedPdfChunks = []; // Reset
+            collectedPdfChunks = []; 
             let nextSlideIndex = 0;
             let isFinished = false;
-            // RIDOTTO A 10 PER MAGGIORE STABILITÀ SU RENDER FREE
             const BATCH_SIZE = 10; 
             let totalSlidesProcessed = 0;
 
@@ -110,10 +130,9 @@
 
             try {
                 while (!isFinished) {
-                    addLog(`Requesting batch starting at slide ${nextSlideIndex}...`);
-                    document.getElementById('statusText').innerText = `Processing batch from slide ${nextSlideIndex}...`;
+                    addLog(`Connecting to server (Batch starting at ${nextSlideIndex})...`);
+                    document.getElementById('statusText').innerText = `Processing slide ${nextSlideIndex} onwards...`;
 
-                    // Chiamata al server per un pezzetto
                     const response = await fetch('/api/convert-batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -125,22 +144,17 @@
                     });
 
                     if (!response.ok) {
-                        // TENTIAMO DI LEGGERE IL VERO ERRORE DAL SERVER
                         let errorMsg = response.statusText || `Status ${response.status}`;
                         try {
                             const errorBody = await response.text();
-                            // Proviamo a parsarla come JSON se possibile
                             try {
                                 const jsonError = JSON.parse(errorBody);
                                 if (jsonError.error) errorMsg = jsonError.error;
                                 else if (jsonError.message) errorMsg = jsonError.message;
                             } catch(e) {
-                                // Se è testo semplice, usiamo quello (troncato se troppo lungo)
                                 if (errorBody.length < 200) errorMsg = errorBody;
                             }
-                        } catch (e) {
-                            // Impossibile leggere il body
-                        }
+                        } catch (e) {}
                         throw new Error(`Server Error: ${errorMsg}`);
                     }
 
@@ -148,7 +162,13 @@
                     
                     if (!data.success) throw new Error(data.error);
 
-                    // Convertiamo il base64 ricevuto in ArrayBuffer
+                    // LOGICA DI LOG DETTAGLIATI
+                    if (data.logs && Array.isArray(data.logs)) {
+                        data.logs.forEach(logLine => addLog(logLine));
+                    } else {
+                        addLog(`Received ${data.count} slides.`);
+                    }
+
                     const binaryString = window.atob(data.chunk);
                     const len = binaryString.length;
                     const bytes = new Uint8Array(len);
@@ -159,13 +179,12 @@
                     collectedPdfChunks.push(bytes.buffer);
                     
                     totalSlidesProcessed += data.count;
-                    addLog(`Received ${data.count} slides. Total so far: ${totalSlidesProcessed}`);
+                    // Log riassuntivo del blocco
+                    // addLog(`Batch complete. Total slides so far: ${totalSlidesProcessed}`);
                     
-                    // Aggiorna UI
                     nextSlideIndex = data.nextIndex;
                     isFinished = data.isFinished;
 
-                    // Piccola pausa per non stressare il server
                     await new Promise(r => setTimeout(r, 1000));
                 }
 
@@ -176,7 +195,6 @@
 
             } catch (error) {
                 addLog(`CRITICAL ERROR: ${error.message}`, 'error');
-                // Non usiamo alert, basta il log rosso
             }
         }
 
