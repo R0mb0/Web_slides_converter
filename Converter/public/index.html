@@ -102,7 +102,8 @@
             collectedPdfChunks = []; // Reset
             let nextSlideIndex = 0;
             let isFinished = false;
-            const BATCH_SIZE = 25; // 25 Slide alla volta per stare tranquilli con la RAM del server
+            // RIDOTTO A 10 PER MAGGIORE STABILITÀ SU RENDER FREE
+            const BATCH_SIZE = 10; 
             let totalSlidesProcessed = 0;
 
             addLog("Starting Safe-Batch Process...");
@@ -123,7 +124,25 @@
                         })
                     });
 
-                    if (!response.ok) throw new Error(`Server Error: ${response.statusText}`);
+                    if (!response.ok) {
+                        // TENTIAMO DI LEGGERE IL VERO ERRORE DAL SERVER
+                        let errorMsg = response.statusText || `Status ${response.status}`;
+                        try {
+                            const errorBody = await response.text();
+                            // Proviamo a parsarla come JSON se possibile
+                            try {
+                                const jsonError = JSON.parse(errorBody);
+                                if (jsonError.error) errorMsg = jsonError.error;
+                                else if (jsonError.message) errorMsg = jsonError.message;
+                            } catch(e) {
+                                // Se è testo semplice, usiamo quello (troncato se troppo lungo)
+                                if (errorBody.length < 200) errorMsg = errorBody;
+                            }
+                        } catch (e) {
+                            // Impossibile leggere il body
+                        }
+                        throw new Error(`Server Error: ${errorMsg}`);
+                    }
 
                     const data = await response.json();
                     
@@ -157,7 +176,7 @@
 
             } catch (error) {
                 addLog(`CRITICAL ERROR: ${error.message}`, 'error');
-                alert("Process Failed. Check logs.");
+                // Non usiamo alert, basta il log rosso
             }
         }
 
