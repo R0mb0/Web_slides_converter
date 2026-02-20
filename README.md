@@ -10,8 +10,6 @@
 
 </div>
 
-A full-stack web tool to convert HTML presentations (Reveal.js, Marp, etc.) into clean, offline PDFs. Features automatic UI removal, dark mode support, and Puppeteer-based rendering. Built with Node.js.
-
 <p align="center">
   Paste the link to any HTML presentation (Reveal.js, Quarto, Marp, Sli.dev, etc.) to generate a clean, fully-paged PDF ;). Built with Node.js, Puppeteer, and PDF-lib.
 </p>
