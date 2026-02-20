@@ -25,14 +25,12 @@ function ensureBrowserInstalled() {
 ensureBrowserInstalled();
 
 app.post('/api/convert-batch', async (req, res) => {
-    // Riceviamo il limite massimo dal frontend (absoluteMaxSteps)
     const { url, startSlide, batchSize, absoluteMaxSteps } = req.body;
 
     if (!url) return res.status(400).send('URL required');
 
     const start = startSlide || 0;
     const limit = batchSize || 10;
-    // Fallback di sicurezza a 500 lato server se il client non lo invia
     const globalMaxLimit = absoluteMaxSteps ? parseInt(absoluteMaxSteps) : 500;
 
     const batchLogs = [];
@@ -69,7 +67,7 @@ app.post('/api/convert-batch', async (req, res) => {
 
         await page.waitForFunction(() => window.Reveal !== undefined || document.body !== null, { timeout: 5000 }).catch(() => { });
 
-        // Fast-Forward per rimettersi in pari
+        // --- FAST-FORWARD MIGLIORATO ---
         if (start > 0) {
             batchLogs.push(`Restoring state: Fast-forwarding ${start} steps...`);
             await page.evaluate(async (targetSteps) => {
@@ -81,12 +79,15 @@ app.post('/api/convert-batch', async (req, res) => {
                         if (nextBtn) nextBtn.click();
                         else document.dispatchEvent(new KeyboardEvent('keydown', { 'key': 'ArrowRight' }));
                     }
+                    // FIX: Diamo al motore Javascript della pagina il tempo di registrare il frammento
+                    await new Promise(res => setTimeout(res, 50));
                 }
             }, start);
 
             await new Promise(r => setTimeout(r, 2000));
         }
 
+        // --- FIX CRITICO PER I FRAMMENTI/ANIMAZIONI NEI PDF ---
         await page.addStyleTag({
             content: `
                 .controls, .progress, .slide-number, .header, .footer, 
@@ -95,6 +96,21 @@ app.post('/api/convert-batch', async (req, res) => {
                 .reveal-viewport { border: none !important; box-shadow: none !important; }
                 body { cursor: none !important; }
                 ::-webkit-scrollbar { display: none; }
+
+                /* BLOCCO DELLA MODALITÀ STAMPA NATIVA DI REVEAL.JS */
+                /* Impedisce a Chrome di mostrare tutto il testo nascosto durante la generazione del PDF */
+                @media print {
+                    .reveal .slides section .fragment:not(.visible) {
+                        opacity: 0 !important;
+                        visibility: hidden !important;
+                        display: none !important;
+                    }
+                    .reveal .slides section .fragment.visible {
+                        opacity: 1 !important;
+                        visibility: visible !important;
+                        display: inherit !important;
+                    }
+                }
             `
         });
 
@@ -105,14 +121,14 @@ app.post('/api/convert-batch', async (req, res) => {
         let reachedEnd = false;
 
         while (currentCount < limit && hasNext) {
-            // ---- INTERRUTTORE DI SICUREZZA (MANUAL LIMIT) ----
             if ((start + currentCount) >= globalMaxLimit) {
                 batchLogs.push(`Manual safety limit reached (${globalMaxLimit} steps). Stopping.`);
                 reachedEnd = true;
                 break;
             }
 
-            await new Promise(r => setTimeout(r, 1500));
+            // Aumentato leggermente il tempo per dare modo alle animazioni CSS di finire il "fade-in"
+            await new Promise(r => setTimeout(r, 1800));
 
             const slidePdf = await page.pdf({
                 width: `${VIEWPORT_WIDTH}px`,
