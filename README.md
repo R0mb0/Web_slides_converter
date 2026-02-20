@@ -1,6 +1,10 @@
 # Web slides converter
 
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/5205e2528e2a401eb712cce92c3e181a)](https://app.codacy.com/gh/R0mb0/Web_slides_converter/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/R0mb0/Web_slides_converter)
+[![Open Source Love svg3](https://badges.frapsoft.com/os/v3/open-source.svg?v=103)](https://github.com/R0mb0/Web_slides_converter)
+[![MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/license/mit)
+[![Donate](https://img.shields.io/badge/PayPal-Donate%20to%20Author-blue.svg)](http://paypal.me/R0mb0)
 
 A full-stack web tool to convert HTML presentations (Reveal.js, Marp, etc.) into clean, offline PDFs. Features automatic UI removal, dark mode support, and Puppeteer-based rendering. Built with Node.js.
 
@@ -9,36 +13,13 @@ A full-stack web tool to convert HTML presentations (Reveal.js, Marp, etc.) into
 - [https://urbinolloyd.github.io/Informatica-Lesson-1/](https://urbinolloyd.github.io/Informatica-Lesson-1/)
 - [https://fabiogiglietto.github.io/genai-media-course/slides/week1-mon-introduction.html#/title-slide](https://fabiogiglietto.github.io/genai-media-course/slides/week1-mon-introduction.html#/title-slide)
 
-
-<h1 align="center">Web Slide Deck to PDF Converter</h1>
-
-<p align="center">
-  <a href="https://app.codacy.com/gh/R0mb0/Slide_deck_to_PDF/dashboard">
-    <img src="https://app.codacy.com/project/badge/Grade/a2abb5ace1a94c4ca36659f26b05b098" alt="Codacy Badge">
-  </a>
-  <a href="https://github.com/R0mb0/Slide_deck_to_PDF/actions/workflows/pages/pages-build-deployment">
-    <img src="https://github.com/R0mb0/Slide_deck_to_PDF/actions/workflows/pages/pages-build-deployment/badge.svg" alt="pages-build-deployment">
-  </a>
-  <a href="https://github.com/R0mb0/Slide_deck_to_PDF">
-    <img src="https://img.shields.io/badge/Maintained%3F-yes-green.svg" alt="Maintenance">
-  </a>
-  <a href="https://github.com/R0mb0/Slide_deck_to_PDF">
-    <img src="https://badges.frapsoft.com/os/v3/open-source.svg?v=103" alt="Open Source Love">
-  </a>
-  <a href="https://opensource.org/license/mit">
-    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT">
-  </a>
-  <a href="http://paypal.me/R0mb0">
-    <img src="https://img.shields.io/badge/PayPal-Donate%20to%20Author-blue.svg" alt="Donate">
-  </a>
-</p>
-
 <p align="center">
   Paste the link to any HTML presentation (Reveal.js, Quarto, Marp, Sli.dev, etc.) to generate a clean, fully-paged PDF ;). Built with Node.js, Puppeteer, and PDF-lib.
 </p>
 
 <div align="center">
   <h2><a href="https://r0mb0.github.io/Slide_deck_to_PDF/">👉 Click here to test the page! 👈</a></h2>
+  
   <a href="https://r0mb0.github.io/Slide_deck_to_PDF/">
     <img src="https://github.com/R0mb0/Slide_deck_to_PDF/blob/main/ReadMe_Imgs/01.png?raw=true" alt="Screenshot 01">
   </a>
