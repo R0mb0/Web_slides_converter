@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Slide Deck to PDF (Robust)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Libreria PDF-LIB per unire i pezzi nel browser -->
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script>
         tailwind.config = {
@@ -15,7 +14,7 @@
                     colors: {
                         primary: '#10b981',
                         primaryHover: '#059669',
-                        secondary: '#f97316', // Arancione ripristinato
+                        secondary: '#f97316',
                         secondaryHover: '#ea580c',
                     }
                 }
@@ -23,37 +22,69 @@
         }
     </script>
     <style>
-        .terminal-log::-webkit-scrollbar { width: 6px; }
-        .terminal-log::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-        @keyframes loading-bar {
-            0% { transform: translateX(-100%); }
-            50% { transform: translateX(0%); }
-            100% { transform: translateX(100%); }
+        .terminal-log::-webkit-scrollbar {
+            width: 6px;
         }
+
+        .terminal-log::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+
+        @keyframes loading-bar {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            50% {
+                transform: translateX(0%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
         .animate-loading {
             animation: loading-bar 2s infinite linear;
+        }
+        /* Nasconde le freccette standard nei browser webkit, ma le mostriamo al focus per comodità */
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            opacity: 1;
         }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans">
 
     <div class="w-full max-w-4xl bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-8 md:p-12">
-        
+
         <div class="text-center mb-10">
             <h1 class="text-4xl md:text-5xl font-extrabold mb-2 bg-gradient-to-r from-emerald-400 to-cyan-500 bg-clip-text text-transparent">
                 Slide Deck Converter
             </h1>
             <p class="text-slate-500 dark:text-slate-400">
-                Safe-Batch Technology &trade; - No crash, even for 200+ slides.
+                Safe-Batch Technology &trade; - Controlled extraction process.
             </p>
         </div>
 
         <!-- INPUT -->
         <div id="inputSection" class="w-full max-w-2xl mx-auto space-y-6">
             <div class="relative bg-white dark:bg-slate-900 rounded-xl p-2 flex items-center shadow-sm border border-slate-200 dark:border-slate-700">
-                <input type="url" id="urlInput" placeholder="Paste slide URL here..." 
-                    class="w-full bg-transparent border-none focus:ring-0 text-lg p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400" required>
+                <input type="url" id="urlInput" placeholder="Paste slide URL here..."
+                       class="w-full bg-transparent border-none focus:ring-0 text-lg p-3 text-slate-800 dark:text-slate-100 placeholder-slate-400" required>
             </div>
+
+            <!-- NUOVO CONTROLLO: Limitatore di Pagine -->
+            <div class="flex flex-col items-center justify-center space-y-2 py-4 border-y border-slate-100 dark:border-slate-700/50">
+                <label for="maxStepsInput" class="text-sm font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                    Set max page limit
+                </label>
+                <input type="number" id="maxStepsInput" value="100" min="1" max="2000" step="1"
+                       class="w-32 text-center bg-slate-50 dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-600 rounded-xl p-3 text-2xl font-black text-slate-700 dark:text-slate-200 focus:border-primary focus:ring-0 transition-colors shadow-inner"
+                       title="Imposta il numero massimo di slide/frammenti da estrarre prima di forzare la chiusura.">
+            </div>
+
             <button onclick="startBatchProcess()" class="w-full bg-primary hover:bg-primaryHover text-white font-bold py-4 rounded-2xl shadow-lg text-xl transition transform hover:scale-[1.02]">
                 Start Conversion
             </button>
@@ -62,7 +93,6 @@
         <!-- LOADING & LOGS -->
         <div id="loadingSection" class="hidden w-full flex-col items-center justify-center py-6 space-y-6">
             <div class="w-full max-w-md space-y-2 text-center">
-                <!-- Barra di Progressione Animata Correttamente -->
                 <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 overflow-hidden relative">
                     <div class="bg-primary h-full rounded-full w-full absolute top-0 left-0 animate-loading opacity-75"></div>
                 </div>
@@ -79,8 +109,7 @@
             <div class="w-full h-[600px] bg-slate-100 dark:bg-slate-900 rounded-2xl border-2 overflow-hidden relative">
                 <iframe id="pdfPreview" class="w-full h-full" src=""></iframe>
             </div>
-            
-            <!-- Pulsanti Affiancati (Row) e Colorati Correttamente -->
+
             <div class="flex flex-col md:flex-row gap-4 w-full">
                 <button onclick="location.reload()" class="flex-1 bg-secondary hover:bg-secondaryHover text-white font-bold py-3 rounded-2xl shadow-md transition transform hover:scale-[1.02] flex items-center justify-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -100,13 +129,13 @@
     </div>
 
     <script>
-        let collectedPdfChunks = []; 
+        let collectedPdfChunks = [];
         let finalPdfBlobUrl = null;
 
         function addLog(msg, type = 'info') {
             const logContent = document.getElementById('logContent');
             const line = document.createElement('div');
-            line.className = type === 'error' ? 'text-red-500 font-bold' : 'border-l-2 border-green-500 pl-2';
+            line.className = type === 'error' ? 'text-red-500 font-bold' : (type === 'warn' ? 'text-yellow-400 font-bold' : 'border-l-2 border-green-500 pl-2');
             line.textContent = `> ${msg}`;
             logContent.appendChild(line);
             document.getElementById('logContainer').scrollTop = document.getElementById('logContainer').scrollHeight;
@@ -114,32 +143,42 @@
 
         async function startBatchProcess() {
             const url = document.getElementById('urlInput').value;
+            // Leggiamo il valore del limitatore manuale
+            const maxLimitValue = parseInt(document.getElementById('maxStepsInput').value) || 100;
+
             if (!url) return alert('Enter URL');
 
             document.getElementById('inputSection').classList.add('hidden');
             document.getElementById('loadingSection').classList.remove('hidden');
             document.getElementById('loadingSection').classList.add('flex');
-            
-            collectedPdfChunks = []; 
+
+            collectedPdfChunks = [];
             let nextSlideIndex = 0;
             let isFinished = false;
-            const BATCH_SIZE = 10; 
+            const BATCH_SIZE = 10;
             let totalSlidesProcessed = 0;
 
-            addLog("Starting Safe-Batch Process...");
+            addLog(`Starting Process... (Safety Limit set to: ${maxLimitValue})`);
 
             try {
                 while (!isFinished) {
-                    addLog(`Connecting to server (Batch starting at ${nextSlideIndex})...`);
+                    // Controllo Sicurezza Lato Frontend
+                    if (nextSlideIndex >= maxLimitValue) {
+                        addLog(`Max limit of ${maxLimitValue} reached. Forcing completion...`, 'warn');
+                        isFinished = true;
+                        break;
+                    }
+
                     document.getElementById('statusText').innerText = `Processing slide ${nextSlideIndex} onwards...`;
 
                     const response = await fetch('/api/convert-batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            url: url, 
-                            startSlide: nextSlideIndex, 
-                            batchSize: BATCH_SIZE 
+                        body: JSON.stringify({
+                            url: url,
+                            startSlide: nextSlideIndex,
+                            batchSize: BATCH_SIZE,
+                            absoluteMaxSteps: maxLimitValue // Invia il limite al server
                         })
                     });
 
@@ -147,50 +186,43 @@
                         let errorMsg = response.statusText || `Status ${response.status}`;
                         try {
                             const errorBody = await response.text();
-                            try {
-                                const jsonError = JSON.parse(errorBody);
-                                if (jsonError.error) errorMsg = jsonError.error;
-                                else if (jsonError.message) errorMsg = jsonError.message;
-                            } catch(e) {
-                                if (errorBody.length < 200) errorMsg = errorBody;
-                            }
-                        } catch (e) {}
+                            const jsonError = JSON.parse(errorBody);
+                            errorMsg = jsonError.error || jsonError.message || errorMsg;
+                        } catch (e) { }
                         throw new Error(`Server Error: ${errorMsg}`);
                     }
 
                     const data = await response.json();
-                    
+
                     if (!data.success) throw new Error(data.error);
 
-                    // LOGICA DI LOG DETTAGLIATI
                     if (data.logs && Array.isArray(data.logs)) {
-                        data.logs.forEach(logLine => addLog(logLine));
-                    } else {
-                        addLog(`Received ${data.count} slides.`);
+                        data.logs.forEach(logLine => {
+                            if (logLine.includes("limit reached")) addLog(logLine, 'warn');
+                            else addLog(logLine);
+                        });
                     }
 
-                    const binaryString = window.atob(data.chunk);
-                    const len = binaryString.length;
-                    const bytes = new Uint8Array(len);
-                    for (let i = 0; i < len; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
+                    if (data.chunk && data.chunk.length > 0) {
+                        const binaryString = window.atob(data.chunk);
+                        const len = binaryString.length;
+                        const bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binaryString.charCodeAt(i);
+                        }
+                        collectedPdfChunks.push(bytes.buffer);
+                        totalSlidesProcessed += data.count;
                     }
-                    
-                    collectedPdfChunks.push(bytes.buffer);
-                    
-                    totalSlidesProcessed += data.count;
-                    // Log riassuntivo del blocco
-                    // addLog(`Batch complete. Total slides so far: ${totalSlidesProcessed}`);
-                    
+
                     nextSlideIndex = data.nextIndex;
                     isFinished = data.isFinished;
 
                     await new Promise(r => setTimeout(r, 1000));
                 }
 
-                addLog("All batches received. Merging PDFs in browser...");
+                addLog("Extraction finished. Merging PDFs in browser...");
                 document.getElementById('statusText').innerText = "Merging final PDF...";
-                
+
                 await mergeAndShowPDF();
 
             } catch (error) {
@@ -217,7 +249,7 @@
                 document.getElementById('loadingSection').classList.remove('flex');
                 document.getElementById('resultSection').classList.remove('hidden');
                 document.getElementById('resultSection').classList.add('flex');
-                
+
                 document.getElementById('pdfPreview').src = finalPdfBlobUrl + "#toolbar=0";
                 addLog("Done! PDF Ready.");
 
